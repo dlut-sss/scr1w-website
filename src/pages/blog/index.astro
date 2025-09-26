@@ -1,0 +1,25 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { getCollection } from "astro:content";
+const posts = await getCollection("blog");
+posts.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+---
+
+<Layout>
+  <h1>Blog</h1>
+  <p>
+    Welcome to the blog section of Scr1w Studio. Here you'll find the latest
+    updates, articles, and insights from our team.
+  </p>
+  <ul>
+    {
+      posts.map((post) => (
+        <li>
+          <a href={`/blog/${post.slug}`}>{post.data.title}</a>
+          <i>{post.data.date.toDateString()}</i>
+        </li>
+      ))
+    }
+  </ul>
+  <p>Stay tuned for more exciting content!</p>
+</Layout>
