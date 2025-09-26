@@ -9,7 +9,7 @@
   </head>
   <body class="bg-gray-9 text-white font-mono">
     <header
-      class="max-w-screen-lg m-auto py-2 flex flex-wrap justify-between items-center"
+      class="max-w-screen-lg m-auto p-4 flex flex-wrap justify-between items-center"
     >
       <a class="inline-flex items-center gap-4" href="/">
         <img src="/favicon.png" alt="logo" class="h-14" />
@@ -21,10 +21,12 @@
         <a href="/about">About</a>
       </div>
     </header>
-    <main class="max-w-screen-lg m-auto mt-4 p-2 prose prose-invert">
+    <main class="max-w-screen-lg m-auto mt-4 p-4 prose prose-invert">
       <slot />
     </main>
-    <footer class="max-w-screen-lg m-auto prose prose-invert text-gray text-sm">
+    <footer
+      class="max-w-screen-lg m-auto p-4 prose prose-invert text-gray text-sm"
+    >
       © {new Date().getFullYear()} Scr1w Studio. 本网站内容采用
       <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>
       进行许可.
