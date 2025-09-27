@@ -1,10 +1,10 @@
 # Scr1w Website
 
+The website for Scr1w Studio, built with [Astro](https://astro.build/) and [UnoCSS](https://unocss.dev/).
+
 ## Setup
 
 ```bash
-# Install pnpm if you don't have
-npm i -g pnpm
 pnpm i
 pnpm run dev
 ```
