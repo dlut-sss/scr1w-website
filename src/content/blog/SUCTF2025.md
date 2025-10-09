@@ -482,37 +482,37 @@ vendor/react/promise/src/Internal/RejectedPromise.php \_\_destruct()方法
 
 $this->reason 可控，存在字符串拼接，可以触发 \_\_toString 方法
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ZTJmYjY2MzI3MmUxNDMwZTIwM2QxMjk1MjcxNDNkMjhfU2o5RUkzWjkzb2JFckpwVDl1YkpYWk9jVGJZbXpOMFpfVG9rZW46U3NzeWJRTmlhb2dpQ2l4TFY3cWNnYXcwbmZlXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img01.png)
 
 然后根据之前已经被发现的链子，vendor/cakephp/cakephp/src/ORM/Table.php 中的**call 方法可以执行任意类的方法，只是参数不一定可控。所以现在要找到一个可以触发**call 的方法
 
 在 vendor/phpstan/phpdoc-parser/src/Ast/Type/ConstTypeNode.php 的**toString 方法，因为$this->constExpr 可控，同时 Table 类没有**toString 方法，可以触发\_\_call
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=M2RhZWFiYzdkOTFhZGM0NTQ3M2RiZWEyZGYwZjRkNjBfdzV4N1lpR1NkeEt4djRVZndwQTk5eTNzTXY1Wkl6Qk9fVG9rZW46VXdqWWJVdHZNb09qZWp4NG01ZGNKbFhTbjZjXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img02.png)
 
 这里 this->\_behaviors 可控，跟进 hashMethod，this->\_methodMap 可控
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NWU3NzM4MTM0M2Y2NTczOTU5OTYxMzkxOTcxNGM4YWJfYVprVUV1UDY3MWI3azRiYmJ0NExLOUV1cVhVZ3VKcU9fVG9rZW46R2ZkeWJqWEJZb0RtTU54eGRMamN0VWZ3blZmXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img03.png)
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=M2I2MThlYWRmMzhlMmNmMjdkZDdhMDZhNTc3MDk0YTBfYkJocXlIQ05EeGRyQ2YwdDIyamUwa1JKVVNJRkNJb0pfVG9rZW46SHlpcWJueHFKb25pOXd4M0N5d2NmR29obnpkXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img04.png)
 
 再跟进 call 方法，this->has 方法，这里$this->\_loaded 都是可控的，最后可以执行任意类的任意无参方法
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NmQ1MjcxODQ0ZDAyYWUxODA5MDg5ZGYwZTk5YjUyYmNfS1REbVlGUERLMzhPdm8wdFU3N0U4aHhGdDhiRWlhUWhfVG9rZW46Qm54U2I4VlJ5b1pUcm94NUhDTmNaclp0bkpiXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img05.png)
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=OTIzMzY4NjViM2JkNjAzY2ViMzE0YTQ5MjhiY2JjNDNfYjdsbTRiTVBxcXZKS3kzUWhlMll4eUdkOTQ5RUxrb3lfVG9rZW46SFhEWmJnd2Fjb3NYQzB4SVdlWmNIWEtEbkNmXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img06.png)
 
 接着只需要再找一个合适的类进行命令执行就好了。
 
 vendor/mobiledetect/mobiledetectlib/src/MobileDetect.php 的 isMobile 方法，没有参数，跟进 this->hashUserAgent()和 this->isUserAgentEmpty()，只需设置 this->userAgent 不为空字符串就可以
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=NGY1YjExMDU1MTFlODM2MWQzZmMzN2U1OTBjZTA5ZDBfMG9JTWVvYkJKV0YzVWRtRFM1aXNLVWJaOGpaTWtIMnRfVG9rZW46UXkzUGJ6YVY0bzR0clh4eU9RTmNLSktDbnBlXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img07.png)
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YmM3ZWVlNTlkMzBiZGU2ZGQ2ZmQ0YzgzNTQyMDBkNDlfZnZ5ZVFaOGlwVUpCZDhWSUhKUHRTeTA3R0p2ZndMVXhfVG9rZW46Tm1HamJrajEyb05uYm14NGU3cGNPQUlibjRnXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img08.png)
 
 接下来跟进到$this->createCacheKey("mobile")，最后的call_user_func中的$cacheKeyFn 是$this->config['cacheKeyFn']可控，参数$cacheKey 是将$key，$userAgentKey，$httpHeadersKey拼接在一起，这里控制中间的$userAgentKey，令$this->config['cacheKeyFn']为system，$userAgentKey 为前后用分号隔开实现命令执行
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=N2E3MTE1ZTU1OWNkZjdjZDY3MjYyNTRiOTFmNDAyMjJfN0pmVldtODNST2d3VDlEd2JZZzBid1JYR3hSdW90bjdfVG9rZW46RHdDRmJCVU45b1E4YUV4bnJqR2NDdDIyblhkXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img09.png)
 
 最后使用 find suid 提权读取 flag
 
@@ -600,13 +600,13 @@ echo base64_encode(serialize($a))."\n";
 
 暂时无法在飞书文档外展示此内容
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YzI0Y2IwN2ZjNzM2NDk2ODAzNWE0ZjY3OGU1YzQwYTJfUWo4RmJiUjBMSERQaEhIdEgyT2l3amVybFNTY0IzQXJfVG9rZW46QklUTGJTRTVUb2Q0QVN4MlhBYWNRQ0s3bm9iXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img10.png)
 
 PBEWithMD5AndDES 加密，密文与密钥如下
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YjE0YjU5Y2E4NzlmMWQ1MTczOWNlZTg5NzExOTc3NzBfbHJ4VzA4SUs2UDltWmFuRXlOdUlUQ3Q5MDZ3Vm84YzJfVG9rZW46SEJ5emI1MmV6b0ZHY3V4UldGRmNWWG96bkplXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img11.png)
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ZjBmMzRkNzA3ZDEyMzI3ZjNlODVlNjJiN2Q3N2Q0MDNfSlB0bU03dHo3UlJtN2hEaXkxOXFPc20wTHBMUEtlZmtfVG9rZW46QVN0aWJOMHN6b2ljblN4UlJnZ2MzQUFublNiXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img12.png)
 
 这个密钥长度应该是 23？SePassWordLen23SUCT，后面应该是 SUCTF，还差三位爆破一下
 
@@ -668,13 +668,13 @@ https://github.com/testtttsu/homework/blob/main/homework.py
 
 这个打码能去么，password 那里
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ZjI0YzM3OWU2MmUyY2ZhM2UwZjFhYWY5Y2M5OWY5YWNfRzlOZ09OMTE4Q05lZDFVclJaSjVaMHVRWm84WmxhMnJfVG9rZW46Q3M0VWJSaGNhb0NKSEt4MVhicWNoek94bjRjXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img13.png)
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=ZjliOGM4ZmExNmY5MzFmZGYxYmFmMWY4NWYxNzY3ZDNfcXk2M2FhTThhNTlFQ2xRWXJ1alZ1MXRCMVU4U1BQWUFfVG9rZW46WU9IT2JUTnp0b3kxeTZ4YTJRaWNnM1JzbjliXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img14.jpeg)
 
 苹果马赛克，2phxMo8iUE2bAVvdsBwZ
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=N2U3MmY1ZWZkYWMyYTBhMDYwYzYyMTFkZTgxZTg1OWJfaGhmSXVSMU0ySTZwMnNsNDY4R3o5TGhqZkhCOTAwSlNfVG9rZW46U2ZhNWJHU2Nob2F5clF4UUJmQmNJelhublpmXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img15.png)
 
 找到 commit id，https://api.github.com/repos/testtttsu/homework/activity
 
@@ -682,13 +682,13 @@ https://github.com/testtttsu/homework/commit/a4be9c81ae540340f3e208dc9b1ee109ea5
 
 解完是
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YjkxNDYxYzdkNmM5Yjc4MDEyYWIyNTlhYjIzZDRjZGNfWnVzcEJTVnhOUEJXb2ZQWVFFcEZ3c0xTcHNYMG5ObnlfVG9rZW46VjI2ZGI0UWFvb1dGdUZ4b2xyc2NhWjdFbjNUXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img16.png)
 
 python 拆一下,138\*108 大小。
 
 然后字母频率，解完像加密过的，丢进去解出来一段话。搜第一句在网上搜出来“全字母句”
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=YTFhYzMzN2JiNDRhNjRkZmY3YmE4ZDA1NDMzZjNkNmJfbDVjakVGSzBVRDkxeTVZam5TRXNwenFhVldCMHJDM2ZfVG9rZW46RGJESGI1dGpNbzlZTkV4SGpCVmN3Z1dUbmFoXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img17.png)
 
 ```python
 import string
@@ -736,7 +736,7 @@ for i, missing in enumerate(missing_letters):
     print(f"Line {i + 1}: Missing letters: {''.join(missing)}")
 ```
 
-![img](https://dlut-sss.feishu.cn/space/api/box/stream/download/asynccode/?code=OTVkZjdkNmQ3OWIwOTdhMmNmZTk5ODhjZGVmMzJmOGNfcG45NlR0SGlNdjliTlRsOXJrTTlKOHMya2tTeHR6VXVfVG9rZW46RGtISGJCOFJhb2VlUGx4UHZ6bWNXb3FwbllmXzE3NTg4ODMwNjg6MTc1ODg4NjY2OF9WNA)
+![img](/images/SUCTF2025/img18.png)
 
 # PWN
 
