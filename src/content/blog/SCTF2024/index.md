@@ -13,7 +13,7 @@ date: 2024-10-01
 
 直接搜索 Next cve,发现有一个很新的 CVE-2024-34351，在 redirect 的时候修改 Host 请求头和 Origin 可以造成 SSRF。
 
-![img](/images/SCTF2024/img01.png)
+![img](./img01.png)
 
 审计后端的 flask 代码可以发现就是一个用户注册登录的功能，在登录的账户身份为 admin 时可以执行 curl 命令。同时在存储用户信息时使用的是 redis，在 add_user 时的 SET 方法会在 pack_command 结束后将 pack 的数据中的 admin 替换为 hacker，这就造成了字符逃逸。通过构造用户名，将 username 所对应的 user_info_serialized 修改成自己想要的。
 
@@ -832,7 +832,7 @@ io.interactive()
 
 ### kno_puts
 
-![img](/images/SCTF2024/img02.png)
+![img](./img02.png)
 
 ### vmCode
 
@@ -920,9 +920,9 @@ plt.show()
 
 按照 aztec 码标准修改
 
-![img](/images/SCTF2024/img03.png)
+![img](./img03.png)
 
-![img](/images/SCTF2024/img04.png)
+![img](./img04.png)
 
 ### 速来探索 SCTF 星球隐藏的秘密！
 
@@ -949,7 +949,7 @@ while True:
 
 {"message":"Congratulations, you got the key to the SCTF planet. Let’s start the next journey: <a href=\"http://1.95.67.57:8502\" style=\"color: pink;\">http://1.95.67.57:8502</a>"}
 
-![img](/images/SCTF2024/img05.png)
+![img](./img05.png)
 
 ### 问卷
 

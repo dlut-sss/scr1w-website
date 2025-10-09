@@ -3,7 +3,7 @@ title: N1CTF2024
 date: 2024-11-14
 ---
 
-![img](/images/N1CTF2024/img01.png)
+![img](./img01.png)
 
 ## 目录
 
@@ -13,7 +13,7 @@ date: 2024-11-14
 
 这个题主要利用 pocketbase 不会自动设置管理员账户。通过 docker-compose 文件可以发现，在 pocketbase 的 app 容器实例化后才会实例化 prepare 容器。但是 prepare 容器的 prepare.js 在启动后至少要 5 秒钟才会进行设置 admin 的操作，所以通过轮询获取比赛平台的运行容器 url 地址，然后设置 admin 账户，登录后访问 secret_posts 即可
 
-![img](/images/N1CTF2024/img02.png)
+![img](./img02.png)
 
 ```python
 import requests
@@ -69,7 +69,7 @@ res=requests.get(url=url1,headers=headers)
 print(res.content.decode())
 ```
 
-![img](/images/N1CTF2024/img03.png)
+![img](./img03.png)
 
 ### Esc Error
 
@@ -170,7 +170,7 @@ sql_inject(payload3)
 get_rce_result()
 ```
 
-![img](/images/N1CTF2024/img04.png)
+![img](./img04.png)
 
 ## Crypto
 

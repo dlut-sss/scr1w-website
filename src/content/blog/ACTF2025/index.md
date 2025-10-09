@@ -746,7 +746,7 @@ export BASH_ENV='$(cat /root/flag >/tmp/a)'
 
 5:tt31309480，碰之道，搜索里面角色的 ID，找到第四话之类的相关网站，尝试找到 b 站的这个番，翻了一下第四话，验证成功
 
-![img](/images/ACTF2025/img01.png)
+![img](./img01.png)
 
 6:tt34382036，识图
 
@@ -764,11 +764,11 @@ hard：
 
 4:tt0043306 流浪者，google 识图完找到一张同情景下的图片，看人物、环境可以对应。后续再搜这张图可以得到电影名称。
 
-![img](/images/ACTF2025/img02.png)
+![img](./img02.png)
 
 5:tt5004766，发现蜘蛛很有特点，于是问了 AI，得到被遗忘的孩子。
 
-![img](/images/ACTF2025/img03.png)
+![img](./img03.png)
 
 # pwn
 
@@ -916,7 +916,7 @@ print(aes.decrypt(ct))
 
 ai 获取密文
 
-![img](/images/ACTF2025/img04.png)
+![img](./img04.png)
 
 通过 ai 获取解密代码
 

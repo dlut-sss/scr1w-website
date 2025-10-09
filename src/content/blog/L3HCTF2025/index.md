@@ -3,7 +3,7 @@ title: L3HCTF2025
 date: 2025-07-14
 ---
 
-![img](/images/L3HCTF2025/img01.png)
+![img](./img01.png)
 
 # 目录
 
@@ -13,9 +13,9 @@ date: 2025-07-14
 
 扫
 
-![img](/images/L3HCTF2025/img02.png)
+![img](./img02.png)
 
-```Plain
+```plaintext
 flag is not here, but I can give you the key: "quantum"
 ```
 
@@ -23,13 +23,13 @@ flag is not here, but I can give you the key: "quantum"
 
 使用 7z-gui 打开发现有两个文件，
 
-![img](/images/L3HCTF2025/img03.png)
+![img](./img03.png)
 
 正常解压无法提取出另一个文件
 
 在 7z-gui 直接双击打开图片调出 Windows 自带的 图片浏览器，复制到本地，成功提取出文件
 
-![img](/images/L3HCTF2025/img04.png)
+![img](./img04.png)
 
 扫不出来，按颜色异或
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
 有请大 G 老师
 
-![img](/images/L3HCTF2025/img05.png)
+![img](./img05.png)
 
 ```python
 # 根据实际数据结构定义RagData类
@@ -136,7 +136,7 @@ a = vec2text.invert_embeddings(
 print(a)
 ```
 
-![img](/images/L3HCTF2025/img06.png)
+![img](./img06.png)
 
 可以得到向量的大致原始文本，但恢复的不完全正确，通过文本描述，整理出 L3HCTF?WOWT?hI?SISEMBEDDING?，可能是模型选择和轮次的问题？长度为 26，结合语义猜测是 L3HCTF{WOWThISISEMBEDDING}，提交错误，全大写提交错误，首字母大写提交错误，全小写正确。
 
@@ -282,9 +282,9 @@ https://github.com/AncientAbysswalker/RuinSeeker?tab=readme-ov-file
 
 通过标点符号对应到原始文本为：https://www.ign.com/articles/tunic-review-xbox-pc-steam，010里打开图片末尾有b64的提示：ign review
 
-![img](/images/L3HCTF2025/img07.png)
+![img](./img07.png)
 
-![img](/images/L3HCTF2025/img08.jpeg)
+![img](./img08.jpeg)
 
 发现题目和现有工具对应不上，猜测是建立了新的规则，查看这种语言的原理，外层代表元音，内层代表辅音，由于已经找到题目对应的原文，单词一一对应后，可以打表获得所有音标对应的符号。
 
@@ -292,7 +292,7 @@ https://github.com/AncientAbysswalker/RuinSeeker?tab=readme-ov-file
 
 手搓大致内容如下：
 
-![img](/images/L3HCTF2025/img09.jpeg)
+![img](./img09.jpeg)
 
 大致内容为
 
@@ -430,11 +430,11 @@ WGs84：114.16353904889526,30.621383055909554
 
 在那个宜家里面
 
-![img](/images/L3HCTF2025/img10.png)
+![img](./img10.png)
 
 姓名：LELAND 大写
 
-![img](/images/L3HCTF2025/img11.png)
+![img](./img11.png)
 
 答题正确后目录穿越读 flag
 
@@ -753,7 +753,7 @@ if __name__ == "__main__":
 
 ## 终焉之门
 
-```C++
+```c++
 #include <stdio.h>
 int main(int argc, char const *argv[])
 {
@@ -814,7 +814,7 @@ unsigned int ans[32] = {
 
 魔改 tea 加密 ， 每轮的 sum 延续到下一轮
 
-```C++
+```c++
 #include <stdio.h>
 #include <stdint.h>
 
@@ -937,13 +937,13 @@ if __name__ == "__main__":
 
 纯纯换皮模板题，pz✌ 各路大佬分享会视频
 
-![img](/images/L3HCTF2025/img12.png)
+![img](./img12.png)
 
 拿表，解包，index.html 是空壳，js 只是单纯送给后端的 greet
 
 最后大 G 老师秒杀
 
-![img](/images/L3HCTF2025/img13.png)
+![img](./img13.png)
 
 ```python
 def decrypt_full():

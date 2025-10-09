@@ -238,7 +238,7 @@ print(bytes(flag))
 
 根据长度猜测 flag
 
-![img](/images/NCTF2023/img01.png)
+![img](./img01.png)
 
 ### 中文编程 2
 
@@ -730,7 +730,7 @@ fetch("/api/flag", {
   .then((flag) => console.log(flag));
 ```
 
-![img](/images/NCTF2023/img02.png)
+![img](./img02.png)
 
 ## Crypto
 
@@ -1362,13 +1362,13 @@ io.interactive()
 
 玩就好了，跳一跳头顶会出现二维码，扫描后是 flag
 
-![img](/images/NCTF2023/img03.png)
+![img](./img03.png)
 
 ### Jump For Flag
 
 上一题的升级版，现在跳跃之后每次只给几个像素
 
-![img](/images/NCTF2023/img04.png)
+![img](./img04.png)
 
 猜测可能也是从一个二维码里随机提取几位生成的，扔到 ILSPY 里解包源码，找到像素的生成逻辑`CubeGenerator.cs`
 
@@ -1448,7 +1448,7 @@ image.save("generated_image.png")
 
 `generated_image.png`:
 
-![img](/images/NCTF2023/img05.png)
+![img](./img05.png)
 
 ### NCTF2077: jackpot
 

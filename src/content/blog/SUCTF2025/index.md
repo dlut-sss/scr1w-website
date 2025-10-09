@@ -482,37 +482,37 @@ vendor/react/promise/src/Internal/RejectedPromise.php \_\_destruct()方法
 
 $this->reason 可控，存在字符串拼接，可以触发 \_\_toString 方法
 
-![img](/images/SUCTF2025/img01.png)
+![img](./img01.png)
 
 然后根据之前已经被发现的链子，vendor/cakephp/cakephp/src/ORM/Table.php 中的**call 方法可以执行任意类的方法，只是参数不一定可控。所以现在要找到一个可以触发**call 的方法
 
 在 vendor/phpstan/phpdoc-parser/src/Ast/Type/ConstTypeNode.php 的**toString 方法，因为$this->constExpr 可控，同时 Table 类没有**toString 方法，可以触发\_\_call
 
-![img](/images/SUCTF2025/img02.png)
+![img](./img02.png)
 
 这里 this->\_behaviors 可控，跟进 hashMethod，this->\_methodMap 可控
 
-![img](/images/SUCTF2025/img03.png)
+![img](./img03.png)
 
-![img](/images/SUCTF2025/img04.png)
+![img](./img04.png)
 
 再跟进 call 方法，this->has 方法，这里$this->\_loaded 都是可控的，最后可以执行任意类的任意无参方法
 
-![img](/images/SUCTF2025/img05.png)
+![img](./img05.png)
 
-![img](/images/SUCTF2025/img06.png)
+![img](./img06.png)
 
 接着只需要再找一个合适的类进行命令执行就好了。
 
 vendor/mobiledetect/mobiledetectlib/src/MobileDetect.php 的 isMobile 方法，没有参数，跟进 this->hashUserAgent()和 this->isUserAgentEmpty()，只需设置 this->userAgent 不为空字符串就可以
 
-![img](/images/SUCTF2025/img07.png)
+![img](./img07.png)
 
-![img](/images/SUCTF2025/img08.png)
+![img](./img08.png)
 
 接下来跟进到$this->createCacheKey("mobile")，最后的call_user_func中的$cacheKeyFn 是$this->config['cacheKeyFn']可控，参数$cacheKey 是将$key，$userAgentKey，$httpHeadersKey拼接在一起，这里控制中间的$userAgentKey，令$this->config['cacheKeyFn']为system，$userAgentKey 为前后用分号隔开实现命令执行
 
-![img](/images/SUCTF2025/img09.png)
+![img](./img09.png)
 
 最后使用 find suid 提权读取 flag
 
@@ -600,13 +600,13 @@ echo base64_encode(serialize($a))."\n";
 
 暂时无法在飞书文档外展示此内容
 
-![img](/images/SUCTF2025/img10.png)
+![img](./img10.png)
 
 PBEWithMD5AndDES 加密，密文与密钥如下
 
-![img](/images/SUCTF2025/img11.png)
+![img](./img11.png)
 
-![img](/images/SUCTF2025/img12.png)
+![img](./img12.png)
 
 这个密钥长度应该是 23？SePassWordLen23SUCT，后面应该是 SUCTF，还差三位爆破一下
 
@@ -668,13 +668,13 @@ https://github.com/testtttsu/homework/blob/main/homework.py
 
 这个打码能去么，password 那里
 
-![img](/images/SUCTF2025/img13.png)
+![img](./img13.png)
 
-![img](/images/SUCTF2025/img14.jpeg)
+![img](./img14.jpeg)
 
 苹果马赛克，2phxMo8iUE2bAVvdsBwZ
 
-![img](/images/SUCTF2025/img15.png)
+![img](./img15.png)
 
 找到 commit id，https://api.github.com/repos/testtttsu/homework/activity
 
@@ -682,13 +682,13 @@ https://github.com/testtttsu/homework/commit/a4be9c81ae540340f3e208dc9b1ee109ea5
 
 解完是
 
-![img](/images/SUCTF2025/img16.png)
+![img](./img16.png)
 
 python 拆一下,138\*108 大小。
 
 然后字母频率，解完像加密过的，丢进去解出来一段话。搜第一句在网上搜出来“全字母句”
 
-![img](/images/SUCTF2025/img17.png)
+![img](./img17.png)
 
 ```python
 import string
@@ -736,7 +736,7 @@ for i, missing in enumerate(missing_letters):
     print(f"Line {i + 1}: Missing letters: {''.join(missing)}")
 ```
 
-![img](/images/SUCTF2025/img18.png)
+![img](./img18.png)
 
 # PWN
 

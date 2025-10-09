@@ -11,7 +11,7 @@ date: 2024-05-29
 
 直接给 logo 变量赋值 ROIS_LOGO 的字符串就行
 
-![img](/images/RCTF2024/img01.png)
+![img](./img01.png)
 
 ### logo:2024
 
@@ -54,7 +54,7 @@ print(str1,str2)
 
 flag：RCTF{c4baf0eb-e5ca-543a-06d0-39d72325a0}
 
-![img](/images/RCTF2024/img02.png)
+![img](./img02.png)
 
 ### feedback
 
@@ -663,7 +663,7 @@ while True:
 
 在线网站 rc4 求解之后脚本解密
 
-![img](/images/RCTF2024/img03.png)
+![img](./img03.png)
 
 ```python
 a = [0xcb,0x8f,0x4a,0xce,0x81,0x07,0x88,0xc7,0x07,0xc7,0x01,0x88,0x46,0x06,0xc7,0x02,0x86,0x88,0xc7,0x44,0x84,0x85,0x06,0xc3]
